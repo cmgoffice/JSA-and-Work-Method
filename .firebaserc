@@ -1,5 +1,15 @@
 {
   "projects": {
-    "default": "wmtjsa-79a05"
-  }
+    "default": "cmgsafetydatabase"
+  },
+  "targets": {
+    "cmgsafetydatabase": {
+      "hosting": {
+        "site-02": [
+          "jsa-work-method"
+        ]
+      }
+    }
+  },
+  "etags": {}
 }

@@ -1,10 +1,4 @@
 import React, { useState, useEffect, useRef } from "react";
-
-// --- Global Declarations ---
-declare const __firebase_config: string | undefined;
-declare const __app_id: string | undefined;
-declare const __initial_auth_token: string | undefined;
-
 import {
   Plus,
   FileText,
@@ -13,7 +7,6 @@ import {
   Save,
   Download,
   Printer,
-  ChevronRight,
   Info,
   ShieldAlert,
   LayoutDashboard,
@@ -22,47 +15,34 @@ import {
   ImagePlus,
   Filter,
   Loader2,
-  Briefcase, // Added for Project tab icon
-  Wifi, // For connection status
-  Database, // For Firebase status
+  Briefcase,
+  Wifi,
+  Database,
+  Users,
 } from "lucide-react";
 
-// --- Firebase Imports ---
-import { initializeApp } from "firebase/app";
 import {
-  getAuth,
   signInAnonymously,
   onAuthStateChanged,
-  signInWithCustomToken,
 } from "firebase/auth";
+import { setDoc, deleteDoc, onSnapshot, getDoc } from "firebase/firestore";
+
 import {
-  getFirestore,
-  collection,
-  doc,
-  setDoc,
-  deleteDoc,
-  onSnapshot,
-} from "firebase/firestore";
-
-// --- Firebase Setup ---
-const firebaseConfig =
-  typeof __firebase_config !== "undefined" && __firebase_config
-    ? JSON.parse(__firebase_config)
-    : {
-        apiKey: "AIzaSyC9eiyDxY5sA3_QQKHiSkmhc5WQXXbErTQ",
-        authDomain: "wmtjsa-79a05.firebaseapp.com",
-        projectId: "wmtjsa-79a05",
-        storageBucket: "wmtjsa-79a05.firebasestorage.app",
-        messagingSenderId: "517075607643",
-        appId: "1:517075607643:web:49120328ecdf932cdc9f7e",
-        measurementId: "G-50VCXFYDRP",
-      };
-
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
-const currentAppId =
-  typeof __app_id !== "undefined" ? __app_id : "wmtjsa-79a05";
+  auth,
+  projectsRef,
+  wmsDocumentsRef,
+  jsaDocumentsRef,
+  usersRef,
+  projectDoc,
+  wmsDoc,
+  jsaDoc,
+  metaDoc,
+} from "./firebase";
+import { getDocs } from "firebase/firestore";
+import { seedMockDataToFirestore } from "./seedData";
+import { api, useApiForSave } from "./api";
+import { useAuth } from "./contexts/AuthContext";
+import type { UserProfile } from "./types/auth";
 
 // --- Helper Function: Export to MS Word ---
 const exportToWord = (
@@ -299,13 +279,20 @@ const initialJSAFormState = {
 };
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState("project"); // 'project', 'wms', 'jsa'
+  const [activeTab, setActiveTab] = useState<"project" | "wms" | "jsa" | "users">("project");
   const [view, setView] = useState("list"); // 'list', 'form', 'detail'
+
+  const { userProfile } = useAuth();
+  const roleList = userProfile?.role;
+  const roles = Array.isArray(roleList) ? roleList : [];
+  const canManageUsers = roles.includes("SuperAdmin") || roles.includes("Admin");
 
   // Auth & UI State
   const [user, setUser] = useState<any>(null);
   const [loadingAuth, setLoadingAuth] = useState(true);
   const [selectedProjectFilter, setSelectedProjectFilter] = useState("All"); // ตัวกรองโครงการ
+  const [adminUsers, setAdminUsers] = useState<(UserProfile & { id: string })[]>([]);
+  const [adminUsersLoading, setAdminUsersLoading] = useState(false);
 
   // Project State
   const [projects, setProjects] = useState<any[]>([]);
@@ -323,46 +310,69 @@ export default function App() {
   const [jsaFormData, setJsaFormData] = useState<any>(initialJSAFormState);
   const [currentJSADoc, setCurrentJSADoc] = useState<any>(null);
 
-  // --- 1. Firebase Auth Setup ---
+  // --- 1. Firebase Auth: ถ้ามี user (จาก Login/Google) อยู่แล้ว ไม่ต้อง anonymous ---
   useEffect(() => {
+    let cancelled = false;
     const initAuth = async () => {
       try {
-        if (
-          typeof __initial_auth_token !== "undefined" &&
-          __initial_auth_token
-        ) {
-          await signInWithCustomToken(auth, __initial_auth_token);
-        } else {
-          await signInAnonymously(auth);
-        }
+        if (!auth.currentUser) await signInAnonymously(auth);
       } catch (error) {
         console.error("Auth Init Error:", error);
+        if (!cancelled) setLoadingAuth(false);
       }
     };
     initAuth();
 
     const unsubscribe = onAuthStateChanged(auth, (u) => {
-      setUser(u);
-      setLoadingAuth(false);
+      if (!cancelled) {
+        setUser(u);
+        setLoadingAuth(false);
+      }
     });
-    return () => unsubscribe();
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
   }, []);
+
+  // --- 1.1 Seed ข้อมูล Mock ครั้งแรก (เมื่อยังไม่มีใน Firebase) ---
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const metaSnap = await getDoc(metaDoc());
+        if (cancelled) return;
+        if (!metaSnap.exists() || !metaSnap.data()?.seeded) {
+          await seedMockDataToFirestore();
+        }
+      } catch (e) {
+        console.error("Seed check/run error:", e);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [user]);
+
+  // --- โหลดรายชื่อผู้ใช้ (สำหรับ SuperAdmin/Admin) ---
+  useEffect(() => {
+    if (!canManageUsers) return;
+    setAdminUsersLoading(true);
+    getDocs(usersRef())
+      .then((snap) => {
+        const list = snap.docs.map((d) => ({ ...d.data(), id: d.id } as UserProfile & { id: string }));
+        setAdminUsers(list);
+      })
+      .catch(() => setAdminUsers([]))
+      .finally(() => setAdminUsersLoading(false));
+  }, [canManageUsers]);
 
   // --- 2. Firestore Real-time Sync ---
   useEffect(() => {
     if (!user) return;
 
-    // Sync Projects
-    const projRef = collection(
-      db,
-      "artifacts",
-      currentAppId,
-      "public",
-      "data",
-      "projects"
-    );
+    // Sync Projects (JSA Work Method > root > projects)
     const unsubProj = onSnapshot(
-      projRef,
+      projectsRef(),
       (snapshot) => {
         const docs: any[] = [];
         snapshot.forEach((d) => docs.push(d.data()));
@@ -375,17 +385,9 @@ export default function App() {
       (err) => console.error("Project Sync Error:", err)
     );
 
-    // Sync WMS
-    const wmsRef = collection(
-      db,
-      "artifacts",
-      currentAppId,
-      "public",
-      "data",
-      "wms_documents"
-    );
+    // Sync WMS (JSA Work Method > root > wms_documents)
     const unsubWms = onSnapshot(
-      wmsRef,
+      wmsDocumentsRef(),
       (snapshot) => {
         const docs: any[] = [];
         snapshot.forEach((d) => docs.push(d.data()));
@@ -398,17 +400,9 @@ export default function App() {
       (err) => console.error("WMS Sync Error:", err)
     );
 
-    // Sync JSA
-    const jsaRef = collection(
-      db,
-      "artifacts",
-      currentAppId,
-      "public",
-      "data",
-      "jsa_documents"
-    );
+    // Sync JSA (JSA Work Method > root > jsa_documents)
     const unsubJsa = onSnapshot(
-      jsaRef,
+      jsaDocumentsRef(),
       (snapshot) => {
         const docs: any[] = [];
         snapshot.forEach((d) => docs.push(d.data()));
@@ -446,10 +440,11 @@ export default function App() {
     };
 
     try {
-      await setDoc(
-        doc(db, "artifacts", currentAppId, "public", "data", "projects", docId),
-        docToSave
-      );
+      if (useApiForSave()) {
+        await api.saveProject(docToSave);
+      } else {
+        await setDoc(projectDoc(docId), docToSave);
+      }
       setView("list");
       setProjectFormData(initialProjectFormState);
     } catch (err) {
@@ -460,9 +455,16 @@ export default function App() {
 
   const deleteProject = async (id: string) => {
     if (confirm("ยืนยันการลบข้อมูลโครงการนี้?")) {
-      await deleteDoc(
-        doc(db, "artifacts", currentAppId, "public", "data", "projects", id)
-      );
+      try {
+        if (useApiForSave()) {
+          await api.deleteProject(id);
+        } else {
+          await deleteDoc(projectDoc(id));
+        }
+      } catch (err) {
+        console.error("Error deleting Project:", err);
+        alert("ไม่สามารถลบข้อมูลโครงการได้");
+      }
     }
   };
 
@@ -484,18 +486,11 @@ export default function App() {
     };
 
     try {
-      await setDoc(
-        doc(
-          db,
-          "artifacts",
-          currentAppId,
-          "public",
-          "data",
-          "wms_documents",
-          docId
-        ),
-        docToSave
-      );
+      if (useApiForSave()) {
+        await api.saveWMS(docToSave);
+      } else {
+        await setDoc(wmsDoc(docId), docToSave);
+      }
       setView("list");
       setWmsFormData(initialWMSFormState);
       setSelectedProjectFilter(docToSave.project || "All");
@@ -507,17 +502,16 @@ export default function App() {
 
   const deleteWMS = async (id: string) => {
     if (confirm("ยืนยันการลบเอกสาร WMS นี้?")) {
-      await deleteDoc(
-        doc(
-          db,
-          "artifacts",
-          currentAppId,
-          "public",
-          "data",
-          "wms_documents",
-          id
-        )
-      );
+      try {
+        if (useApiForSave()) {
+          await api.deleteWMS(id);
+        } else {
+          await deleteDoc(wmsDoc(id));
+        }
+      } catch (err) {
+        console.error("Error deleting WMS:", err);
+        alert("ไม่สามารถลบเอกสาร WMS ได้");
+      }
     }
   };
 
@@ -561,18 +555,11 @@ export default function App() {
     };
 
     try {
-      await setDoc(
-        doc(
-          db,
-          "artifacts",
-          currentAppId,
-          "public",
-          "data",
-          "jsa_documents",
-          docId
-        ),
-        docToSave
-      );
+      if (useApiForSave()) {
+        await api.saveJSA(docToSave);
+      } else {
+        await setDoc(jsaDoc(docId), docToSave);
+      }
       setView("list");
       setJsaFormData(initialJSAFormState);
       setSelectedProjectFilter(docToSave.project || "All");
@@ -584,17 +571,16 @@ export default function App() {
 
   const deleteJSA = async (id: string) => {
     if (confirm("ยืนยันการลบเอกสาร JSA นี้?")) {
-      await deleteDoc(
-        doc(
-          db,
-          "artifacts",
-          currentAppId,
-          "public",
-          "data",
-          "jsa_documents",
-          id
-        )
-      );
+      try {
+        if (useApiForSave()) {
+          await api.deleteJSA(id);
+        } else {
+          await deleteDoc(jsaDoc(id));
+        }
+      } catch (err) {
+        console.error("Error deleting JSA:", err);
+        alert("ไม่สามารถลบเอกสาร JSA ได้");
+      }
     }
   };
 
@@ -695,8 +681,8 @@ export default function App() {
     );
   }
 
-  // --- Project Views ---
-  const ProjectFormView = () => (
+  // --- Project Form (inline เพื่อไม่ให้เคอร์เซอร์เด้งออกตอนพิมพ์) ---
+  const projectFormJSX = view === "form" && activeTab === "project" && (
     <div className="max-w-4xl mx-auto bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden print:hidden">
       <div className="bg-emerald-600 px-6 py-4 flex items-center justify-between">
         <div className="flex items-center text-white">
@@ -824,8 +810,8 @@ export default function App() {
     </div>
   );
 
-  // --- WMS Views ---
-  const WMSFormView = () => (
+  // --- WMS Form (inline) ---
+  const wmsFormJSX = view === "form" && activeTab === "wms" && (
     <div className="max-w-5xl mx-auto bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden print:hidden">
       <div className="bg-blue-600 px-6 py-4 flex items-center justify-between">
         <div className="flex items-center text-white">
@@ -1060,7 +1046,8 @@ export default function App() {
     </div>
   );
 
-  const WMSDetailView = () => (
+  // --- WMS Detail (inline) ---
+  const wmsDetailJSX = view === "detail" && activeTab === "wms" && (
     <div className="max-w-5xl mx-auto">
       <div className="flex justify-between items-center mb-6 print:hidden">
         <button
@@ -1320,8 +1307,8 @@ export default function App() {
     </div>
   );
 
-  // --- JSA Views ---
-  const JSAFormView = () => (
+  // --- JSA Form (inline) ---
+  const jsaFormJSX = view === "form" && activeTab === "jsa" && (
     <div className="max-w-6xl mx-auto bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden print:hidden">
       <div className="bg-orange-600 px-6 py-4 flex items-center justify-between">
         <div className="flex items-center text-white">
@@ -1515,7 +1502,8 @@ export default function App() {
     </div>
   );
 
-  const JSADetailView = () => (
+  // --- JSA Detail (inline) ---
+  const jsaDetailJSX = view === "detail" && activeTab === "jsa" && (
     <div className="max-w-7xl mx-auto">
       <div className="flex justify-between items-center mb-6 print:hidden">
         <button
@@ -1772,7 +1760,30 @@ export default function App() {
             </div>
           </button>
         </nav>
-        
+
+        {/* จัดการผู้ใช้งาน - เฉพาะ SuperAdmin/Admin */}
+        {canManageUsers && (
+          <div className="border-t border-gray-800 pt-2 px-3 pb-2">
+            <button
+              onClick={() => {
+                setActiveTab("users");
+                setView("list");
+              }}
+              className={`w-full flex items-center px-4 py-3 rounded-lg transition-colors ${
+                activeTab === "users"
+                  ? "bg-violet-600 text-white"
+                  : "text-gray-400 hover:bg-gray-800 hover:text-white"
+              }`}
+            >
+              <Users className="w-5 h-5 mr-3" />
+              <div className="text-left">
+                <div className="font-semibold leading-tight">จัดการผู้ใช้งาน</div>
+                <div className="text-[10px] opacity-70">User Management</div>
+              </div>
+            </button>
+          </div>
+        )}
+
         {/* Firebase Status Indicator */}
         <div className="p-3 border-t border-gray-800">
           <div className="flex items-center justify-between">
@@ -1810,6 +1821,20 @@ export default function App() {
         {/* Dynamic List Views based on activeTab */}
         {view === "list" && (
           <div className="p-6 md:p-8 print:hidden max-w-7xl mx-auto">
+            {/* Header: จัดการผู้ใช้งาน (ไม่มีปุ่มสร้างใหม่) */}
+            {activeTab === "users" ? (
+              <div className="mb-6 bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                <div className="flex items-center">
+                  <div className="p-3 rounded-lg mr-4 bg-violet-100 text-violet-600">
+                    <Users size={28} />
+                  </div>
+                  <div>
+                    <h1 className="text-2xl font-bold text-gray-800">จัดการผู้ใช้งาน</h1>
+                    <p className="text-gray-500 text-sm mt-1">User Management (SuperAdmin/Admin)</p>
+                  </div>
+                </div>
+              </div>
+            ) : (
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 bg-white p-6 rounded-xl shadow-sm border border-gray-100">
               <div className="flex items-center mb-4 md:mb-0">
                 <div
@@ -1865,9 +1890,10 @@ export default function App() {
                 <Plus className="w-5 h-5 mr-2" /> สร้างใหม่
               </button>
             </div>
+            )}
 
             {/* Filter Section (Only for WMS/JSA) */}
-            {activeTab !== "project" && (
+            {activeTab !== "project" && activeTab !== "users" && (
               <div className="mb-4 flex items-center bg-white p-3 rounded-lg shadow-sm border border-gray-200 w-fit">
                 <Filter className="w-5 h-5 text-gray-400 mr-2" />
                 <span className="font-medium text-gray-700 mr-3">
@@ -1890,6 +1916,52 @@ export default function App() {
 
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
               {/* Conditional Table Rendering based on Tab */}
+
+              {/* จัดการผู้ใช้งาน */}
+              {activeTab === "users" &&
+                (adminUsersLoading ? (
+                  <div className="p-8 text-center text-gray-500">กำลังโหลด...</div>
+                ) : (
+                  <>
+                    <table className="w-full text-left text-sm">
+                      <thead className="bg-gray-50 text-gray-600 border-b">
+                        <tr>
+                          <th className="px-6 py-3 font-semibold">อีเมล</th>
+                          <th className="px-6 py-3 font-semibold">ชื่อ-นามสกุล</th>
+                          <th className="px-6 py-3 font-semibold">ตำแหน่ง</th>
+                          <th className="px-6 py-3 font-semibold">บทบาท</th>
+                          <th className="px-6 py-3 font-semibold">สถานะ</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {adminUsers.map((u) => (
+                          <tr key={u.id} className="hover:bg-gray-50">
+                            <td className="px-6 py-4">{u.email}</td>
+                            <td className="px-6 py-4">{u.firstName} {u.lastName}</td>
+                            <td className="px-6 py-4">{u.position || "-"}</td>
+                            <td className="px-6 py-4">{Array.isArray(u.role) ? u.role.join(", ") : "-"}</td>
+                            <td className="px-6 py-4">
+                              <span
+                                className={`px-2 py-1 rounded text-xs font-medium ${
+                                  u.status === "approved"
+                                    ? "bg-green-100 text-green-800"
+                                    : u.status === "pending"
+                                    ? "bg-amber-100 text-amber-800"
+                                    : "bg-red-100 text-red-800"
+                                }`}
+                              >
+                                {u.status}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    <p className="px-6 py-3 text-sm text-gray-500 border-t border-gray-100">
+                      อัปเดตสถานะ/บทบาทใน Firestore: JSA Work Method/root/users/{"{uid}"}
+                    </p>
+                  </>
+                ))}
 
               {/* Project Table */}
               {activeTab === "project" &&
@@ -1947,7 +2019,7 @@ export default function App() {
                 ))}
 
               {/* WMS / JSA Table */}
-              {activeTab !== "project" &&
+              {(activeTab === "wms" || activeTab === "jsa") &&
                 (displayDocuments.length === 0 ? (
                   <div className="p-16 text-center text-gray-400">
                     <div className="flex justify-center mb-4 opacity-50">
@@ -2041,13 +2113,13 @@ export default function App() {
           </div>
         )}
 
-        {/* Dynamic Form & Detail Views */}
+        {/* Dynamic Form & Detail Views (inline เพื่อไม่ให้เคอร์เซอร์เด้งออกตอนพิมพ์) */}
         <div className="print:p-0">
-          {view === "form" && activeTab === "project" && <ProjectFormView />}
-          {view === "form" && activeTab === "wms" && <WMSFormView />}
-          {view === "detail" && activeTab === "wms" && <WMSDetailView />}
-          {view === "form" && activeTab === "jsa" && <JSAFormView />}
-          {view === "detail" && activeTab === "jsa" && <JSADetailView />}
+          {projectFormJSX}
+          {wmsFormJSX}
+          {wmsDetailJSX}
+          {jsaFormJSX}
+          {jsaDetailJSX}
         </div>
       </div>
       <style
