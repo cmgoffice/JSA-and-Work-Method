@@ -19,6 +19,10 @@ import {
   Wifi,
   Database,
   Users,
+  Paperclip,
+  Link,
+  X,
+  Eye,
 } from "lucide-react";
 
 import {
@@ -263,6 +267,7 @@ const initialWMSFormState = {
   inspectTesting: "",
   jsa: "",
   documentedInfo: "",
+  attachments: [] as { type: "document" | "photo" | "url"; name: string; data: string; url?: string }[],
 };
 
 const initialJSAFormState = {
@@ -304,6 +309,7 @@ export default function App() {
   const [wmsDocuments, setWmsDocuments] = useState<any[]>([]);
   const [wmsFormData, setWmsFormData] = useState<any>(initialWMSFormState);
   const [currentWMSDoc, setCurrentWMSDoc] = useState<any>(null);
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
 
   // JSA State
   const [jsaDocuments, setJsaDocuments] = useState<any[]>([]);
@@ -472,6 +478,51 @@ export default function App() {
   const handleWMSChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setWmsFormData((prev: Record<string, any>) => ({ ...prev, [name]: value }));
+  };
+
+  const handleWMSFileUpload = (e: React.ChangeEvent<HTMLInputElement>, type: "document" | "photo") => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    Array.from(files).forEach((file) => {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const data = ev.target?.result as string;
+        setWmsFormData((prev: Record<string, any>) => ({
+          ...prev,
+          attachments: [
+            ...(prev.attachments || []),
+            { type, name: file.name, data },
+          ],
+        }));
+      };
+      reader.readAsDataURL(file);
+    });
+    e.target.value = "";
+  };
+
+  const [wmsUrlInput, setWmsUrlInput] = useState("");
+  const [wmsUrlNameInput, setWmsUrlNameInput] = useState("");
+
+  const handleWMSAddUrl = () => {
+    const url = wmsUrlInput.trim();
+    if (!url) return;
+    const name = wmsUrlNameInput.trim() || url;
+    setWmsFormData((prev: Record<string, any>) => ({
+      ...prev,
+      attachments: [
+        ...(prev.attachments || []),
+        { type: "url", name, data: "", url },
+      ],
+    }));
+    setWmsUrlInput("");
+    setWmsUrlNameInput("");
+  };
+
+  const handleWMSRemoveAttachment = (index: number) => {
+    setWmsFormData((prev: Record<string, any>) => ({
+      ...prev,
+      attachments: (prev.attachments || []).filter((_: any, i: number) => i !== index),
+    }));
   };
 
   const handleWMSSubmit = async (e: React.FormEvent) => {
@@ -821,7 +872,7 @@ export default function App() {
           >
             <ArrowLeft size={20} />
           </button>
-          <h1 className="text-xl font-bold">จัดทำ Work Method Statement</h1>
+          <h1 className="text-xl font-bold">{wmsFormData.id ? "แก้ไข Work Method Statement" : "จัดทำ Work Method Statement"}</h1>
         </div>
       </div>
       <form onSubmit={handleWMSSubmit} className="p-6 md:p-8 space-y-8">
@@ -1027,6 +1078,134 @@ export default function App() {
           )}
         </section>
 
+        {/* Attachments Section */}
+        <section>
+          <h2 className="text-lg font-bold text-gray-800 border-b pb-2 mb-4 flex items-center gap-2">
+            <Paperclip size={18} /> ไฟล์แนบ (Attachments)
+          </h2>
+
+          {/* Upload Buttons Row */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+            {/* Document Upload */}
+            <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 flex flex-col items-center gap-2 bg-gray-50 hover:border-blue-400 transition-colors cursor-pointer" onClick={() => document.getElementById('wms-doc-upload')?.click()}>
+              <Paperclip size={24} className="text-blue-500" />
+              <span className="text-sm font-medium text-gray-700">อัปโหลดเอกสาร</span>
+              <span className="text-xs text-gray-400">PDF, DOC, XLSX, ฯลฯ</span>
+              <input
+                id="wms-doc-upload"
+                type="file"
+                multiple
+                accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt"
+                className="hidden"
+                onChange={(e) => handleWMSFileUpload(e, "document")}
+              />
+            </div>
+
+            {/* Photo Upload */}
+            <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 flex flex-col items-center gap-2 bg-gray-50 hover:border-green-400 transition-colors cursor-pointer" onClick={() => document.getElementById('wms-photo-upload')?.click()}>
+              <ImagePlus size={24} className="text-green-500" />
+              <span className="text-sm font-medium text-gray-700">อัปโหลดรูปภาพ</span>
+              <span className="text-xs text-gray-400">JPG, PNG, GIF, WebP</span>
+              <input
+                id="wms-photo-upload"
+                type="file"
+                multiple
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => handleWMSFileUpload(e, "photo")}
+              />
+            </div>
+
+            {/* URL Input */}
+            <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 flex flex-col gap-2 bg-gray-50">
+              <div className="flex items-center gap-1 mb-1">
+                <Link size={18} className="text-purple-500" />
+                <span className="text-sm font-medium text-gray-700">เพิ่ม URL / ลิงก์</span>
+              </div>
+              <input
+                type="text"
+                placeholder="ชื่อลิงก์ (ไม่บังคับ)"
+                value={wmsUrlNameInput}
+                onChange={(e) => setWmsUrlNameInput(e.target.value)}
+                className="w-full px-2 py-1.5 text-sm border rounded-md focus:outline-none focus:ring-1 focus:ring-purple-400"
+              />
+              <input
+                type="url"
+                placeholder="https://..."
+                value={wmsUrlInput}
+                onChange={(e) => setWmsUrlInput(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), handleWMSAddUrl())}
+                className="w-full px-2 py-1.5 text-sm border rounded-md focus:outline-none focus:ring-1 focus:ring-purple-400"
+              />
+              <button
+                type="button"
+                onClick={handleWMSAddUrl}
+                className="w-full py-1.5 bg-purple-600 text-white text-sm rounded-md hover:bg-purple-700 transition-colors"
+              >
+                + เพิ่มลิงก์
+              </button>
+            </div>
+          </div>
+
+          {/* Attachments List */}
+          {(wmsFormData.attachments || []).length > 0 && (
+            <div className="space-y-2">
+              {(wmsFormData.attachments as any[]).map((att: any, idx: number) => (
+                <div key={idx} className="flex items-center gap-3 p-3 bg-white border rounded-lg shadow-sm">
+                  {att.type === "photo" ? (
+                    <img src={att.data} alt={att.name} className="w-12 h-12 object-cover rounded border flex-shrink-0" />
+                  ) : att.type === "url" ? (
+                    <div className="w-12 h-12 flex items-center justify-center bg-purple-100 rounded border flex-shrink-0">
+                      <Link size={20} className="text-purple-600" />
+                    </div>
+                  ) : (
+                    <div className="w-12 h-12 flex items-center justify-center bg-blue-100 rounded border flex-shrink-0">
+                      <Paperclip size={20} className="text-blue-600" />
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-800 truncate">{att.name}</p>
+                    <p className="text-xs text-gray-400">
+                      {att.type === "photo" ? "รูปภาพ" : att.type === "url" ? "ลิงก์ URL" : "เอกสาร"}
+                    </p>
+                  </div>
+                  {att.type === "url" && att.url && (
+                    <a
+                      href={att.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="p-1.5 text-purple-600 hover:bg-purple-50 rounded transition-colors"
+                    >
+                      <Eye size={16} />
+                    </a>
+                  )}
+                  {att.type === "photo" && (
+                    <a
+                      href={att.data}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="p-1.5 text-green-600 hover:bg-green-50 rounded transition-colors"
+                    >
+                      <Eye size={16} />
+                    </a>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => handleWMSRemoveAttachment(idx)}
+                    className="p-1.5 text-red-400 hover:bg-red-50 hover:text-red-600 rounded transition-colors flex-shrink-0"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {(wmsFormData.attachments || []).length === 0 && (
+            <p className="text-sm text-gray-400 text-center py-4">ยังไม่มีไฟล์แนบ</p>
+          )}
+        </section>
+
         <div className="flex justify-end gap-4 border-t pt-4">
           <button
             type="button"
@@ -1048,7 +1227,7 @@ export default function App() {
 
   // --- WMS Detail (inline) ---
   const wmsDetailJSX = view === "detail" && activeTab === "wms" && (
-    <div className="max-w-5xl mx-auto">
+    <div className="max-w-7xl mx-auto">
       <div className="flex justify-between items-center mb-6 print:hidden">
         <button
           onClick={() => setView("list")}
@@ -1077,6 +1256,109 @@ export default function App() {
         </div>
       </div>
 
+      {/* Two-column layout: left = attachments sidebar, right = printable preview */}
+      <div className="flex gap-6 items-start print:block">
+
+        {/* LEFT: Attachments Sidebar */}
+        <div className="w-72 flex-shrink-0 print:hidden">
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden sticky top-4">
+            <div className="bg-gray-800 px-4 py-3 flex items-center gap-2">
+              <Paperclip size={16} className="text-white" />
+              <span className="text-white font-semibold text-sm">ไฟล์แนบ (Attachments)</span>
+              <span className="ml-auto bg-gray-600 text-gray-200 text-xs px-2 py-0.5 rounded-full">
+                {(currentWMSDoc?.attachments || []).length}
+              </span>
+            </div>
+
+            {(currentWMSDoc?.attachments || []).length === 0 ? (
+              <div className="px-4 py-8 text-center">
+                <Paperclip size={32} className="mx-auto text-gray-300 mb-2" />
+                <p className="text-sm text-gray-400">ไม่มีไฟล์แนบ</p>
+              </div>
+            ) : (
+              <div className="divide-y divide-gray-100">
+                {/* Documents */}
+                {(currentWMSDoc?.attachments as any[] || []).filter((a: any) => a.type === "document").length > 0 && (
+                  <div className="px-4 py-3">
+                    <p className="text-xs font-semibold text-blue-600 uppercase tracking-wide mb-2 flex items-center gap-1">
+                      <Paperclip size={12} /> เอกสาร
+                    </p>
+                    <div className="space-y-1">
+                      {(currentWMSDoc?.attachments as any[] || []).filter((a: any) => a.type === "document").map((att: any, idx: number) => (
+                        <a
+                          key={idx}
+                          href={att.data}
+                          download={att.name}
+                          className="flex items-center gap-2 p-2 rounded-lg hover:bg-blue-50 transition-colors group cursor-pointer"
+                        >
+                          <div className="w-8 h-8 flex items-center justify-center bg-blue-100 rounded flex-shrink-0 group-hover:bg-blue-200">
+                            <Paperclip size={14} className="text-blue-600" />
+                          </div>
+                          <span className="text-xs text-gray-700 truncate flex-1 group-hover:text-blue-700">{att.name}</span>
+                          <Download size={12} className="text-gray-400 group-hover:text-blue-600 flex-shrink-0" />
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Photos */}
+                {(currentWMSDoc?.attachments as any[] || []).filter((a: any) => a.type === "photo").length > 0 && (
+                  <div className="px-4 py-3">
+                    <p className="text-xs font-semibold text-green-600 uppercase tracking-wide mb-2 flex items-center gap-1">
+                      <ImagePlus size={12} /> รูปภาพ
+                    </p>
+                    <div className="grid grid-cols-3 gap-1">
+                      {(currentWMSDoc?.attachments as any[] || []).filter((a: any) => a.type === "photo").map((att: any, idx: number) => (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => setLightboxSrc(att.data)}
+                          className="relative group aspect-square overflow-hidden rounded border border-gray-200 hover:border-green-400 transition-colors"
+                          title={att.name}
+                        >
+                          <img src={att.data} alt={att.name} className="w-full h-full object-cover" />
+                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                            <Eye size={14} className="text-white" />
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* URLs */}
+                {(currentWMSDoc?.attachments as any[] || []).filter((a: any) => a.type === "url").length > 0 && (
+                  <div className="px-4 py-3">
+                    <p className="text-xs font-semibold text-purple-600 uppercase tracking-wide mb-2 flex items-center gap-1">
+                      <Link size={12} /> ลิงก์ URL
+                    </p>
+                    <div className="space-y-1">
+                      {(currentWMSDoc?.attachments as any[] || []).filter((a: any) => a.type === "url").map((att: any, idx: number) => (
+                        <a
+                          key={idx}
+                          href={att.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-2 p-2 rounded-lg hover:bg-purple-50 transition-colors group"
+                        >
+                          <div className="w-8 h-8 flex items-center justify-center bg-purple-100 rounded flex-shrink-0 group-hover:bg-purple-200">
+                            <Link size={14} className="text-purple-600" />
+                          </div>
+                          <span className="text-xs text-gray-700 truncate flex-1 group-hover:text-purple-700">{att.name}</span>
+                          <Eye size={12} className="text-gray-400 group-hover:text-purple-600 flex-shrink-0" />
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* RIGHT: Preview Document */}
+        <div className="flex-1 min-w-0">
       <div
         id="printable-wms"
         className="bg-white p-10 md:p-16 rounded-xl shadow-md mx-auto"
@@ -1304,6 +1586,26 @@ export default function App() {
           </div>
         </div>
       </div>
+        </div>{/* end right column */}
+      </div>{/* end two-column flex */}
+
+      {/* Lightbox for photo preview */}
+      {lightboxSrc && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 print:hidden"
+          onClick={() => setLightboxSrc(null)}
+        >
+          <div className="relative max-w-4xl w-full" onClick={(e) => e.stopPropagation()}>
+            <button
+              onClick={() => setLightboxSrc(null)}
+              className="absolute -top-10 right-0 text-white hover:text-gray-300 flex items-center gap-1 text-sm"
+            >
+              <X size={18} /> ปิด
+            </button>
+            <img src={lightboxSrc} alt="preview" className="w-full h-auto max-h-[85vh] object-contain rounded-lg shadow-2xl" />
+          </div>
+        </div>
+      )}
     </div>
   );
 
@@ -1318,7 +1620,7 @@ export default function App() {
           >
             <ArrowLeft size={20} />
           </button>
-          <h1 className="text-xl font-bold">จัดทำ JOB SAFETY ANALYSIS (JSA)</h1>
+          <h1 className="text-xl font-bold">{jsaFormData.id ? "แก้ไข JOB SAFETY ANALYSIS (JSA)" : "จัดทำ JOB SAFETY ANALYSIS (JSA)"}</h1>
         </div>
       </div>
       <form onSubmit={handleJSASubmit} className="p-6 md:p-8 space-y-6">
@@ -2077,32 +2379,53 @@ export default function App() {
                           <td className="px-6 py-4 text-gray-500">
                             {doc.preparedBy || "-"}
                           </td>
-                          <td className="px-6 py-4 text-right space-x-2">
-                            <button
-                              onClick={() => {
-                                activeTab === "wms"
-                                  ? setCurrentWMSDoc(doc)
-                                  : setCurrentJSADoc(doc);
-                                setView("detail");
-                              }}
-                              className={`inline-flex items-center px-3 py-1.5 rounded-md font-medium transition-colors ${
-                                activeTab === "wms"
-                                  ? "bg-blue-50 text-blue-600 hover:bg-blue-100"
-                                  : "bg-orange-50 text-orange-600 hover:bg-orange-100"
-                              }`}
-                            >
-                              เปิดดู
-                            </button>
-                            <button
-                              onClick={() =>
-                                activeTab === "wms"
-                                  ? deleteWMS(doc.id)
-                                  : deleteJSA(doc.id)
-                              }
-                              className="inline-flex items-center px-3 py-1.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-md font-medium transition-colors"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                          <td className="px-6 py-4 text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              <button
+                                onClick={() => {
+                                  activeTab === "wms"
+                                    ? setCurrentWMSDoc(doc)
+                                    : setCurrentJSADoc(doc);
+                                  setView("detail");
+                                }}
+                                className={`inline-flex items-center px-3 py-1.5 rounded-md font-medium transition-colors ${
+                                  activeTab === "wms"
+                                    ? "bg-blue-50 text-blue-600 hover:bg-blue-100"
+                                    : "bg-orange-50 text-orange-600 hover:bg-orange-100"
+                                }`}
+                              >
+                                เปิดดู
+                              </button>
+                              <button
+                                onClick={() => {
+                                  if (activeTab === "wms") {
+                                    setWmsFormData({ ...doc, attachments: doc.attachments || [] });
+                                    setView("form");
+                                  } else {
+                                    setJsaFormData({ ...doc, items: doc.items || [] });
+                                    setView("form");
+                                  }
+                                }}
+                                className={`inline-flex items-center px-3 py-1.5 rounded-md font-medium transition-colors ${
+                                  activeTab === "wms"
+                                    ? "bg-yellow-50 text-yellow-700 hover:bg-yellow-100"
+                                    : "bg-yellow-50 text-yellow-700 hover:bg-yellow-100"
+                                }`}
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5 mr-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                                แก้ไข
+                              </button>
+                              <button
+                                onClick={() =>
+                                  activeTab === "wms"
+                                    ? deleteWMS(doc.id)
+                                    : deleteJSA(doc.id)
+                                }
+                                className="inline-flex items-center px-3 py-1.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-md font-medium transition-colors"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}
