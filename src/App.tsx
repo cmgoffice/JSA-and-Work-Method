@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
+import { useNavigate, Link } from "react-router-dom";
 import {
   Plus,
   FileText,
@@ -20,18 +21,21 @@ import {
   Database,
   Users,
   Paperclip,
-  Link,
+  Link as LinkIcon,
   X,
   Eye,
   ChevronLeft,
   ChevronRight,
+  LogOut,
+  ChevronDown,
+  UserCircle,
 } from "lucide-react";
 
 import {
   signInAnonymously,
   onAuthStateChanged,
 } from "firebase/auth";
-import { setDoc, deleteDoc, onSnapshot, getDoc } from "firebase/firestore";
+import { setDoc, deleteDoc, onSnapshot, getDoc, query, where } from "firebase/firestore";
 
 import {
   auth,
@@ -39,6 +43,7 @@ import {
   wmsDocumentsRef,
   jsaDocumentsRef,
   usersRef,
+  userDoc,
   projectDoc,
   wmsDoc,
   jsaDoc,
@@ -48,7 +53,10 @@ import { getDocs } from "firebase/firestore";
 import { seedMockDataToFirestore } from "./seedData";
 import { api, useApiForSave } from "./api";
 import { useAuth } from "./contexts/AuthContext";
-import type { UserProfile } from "./types/auth";
+import { logout as authLogout } from "./services/authService";
+import { getAccessibleModules, getAccessibleActions, canAccessModule, type ModuleId } from "./constants/roleModules";
+import type { UserProfile, UserRole, UserStatus } from "./types/auth";
+import { USER_ROLES } from "./types/auth";
 
 // --- Helper Function: Export to MS Word ---
 const exportToWord = (
@@ -286,13 +294,22 @@ const initialJSAFormState = {
 };
 
 export default function App() {
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<"project" | "wms" | "jsa" | "users">("project");
   const [view, setView] = useState("list"); // 'list', 'form', 'detail'
+  const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
+  const profileDropdownRef = useRef<HTMLDivElement>(null);
 
   const { userProfile } = useAuth();
   const roleList = userProfile?.role;
   const roles = Array.isArray(roleList) ? roleList : [];
-  const canManageUsers = roles.includes("SuperAdmin") || roles.includes("Admin");
+  const accessibleModules = useMemo(() => getAccessibleModules(roles), [roleList]);
+  const accessibleActions = useMemo(() => getAccessibleActions(roles), [roleList]);
+  const canAccess = (moduleId: ModuleId) => accessibleModules.has(moduleId);
+  const canCreate = accessibleActions.has("create");
+  const canEdit   = accessibleActions.has("edit");
+  const canDelete = accessibleActions.has("delete");
+  const canManageUsers = canAccess("users");
 
   // Auth & UI State
   const [user, setUser] = useState<any>(null);
@@ -300,6 +317,12 @@ export default function App() {
   const [selectedProjectFilter, setSelectedProjectFilter] = useState("All"); // ตัวกรองโครงการ
   const [adminUsers, setAdminUsers] = useState<(UserProfile & { id: string })[]>([]);
   const [adminUsersLoading, setAdminUsersLoading] = useState(false);
+
+  // นับจำนวนผู้ใช้ที่รออนุมัติ (ใช้สำหรับ badge แจ้งเตือน)
+  const pendingUsersCount = useMemo(
+    () => adminUsers.filter((u) => u.status === "pending").length,
+    [adminUsers]
+  );
 
   // Project State
   const [projects, setProjects] = useState<any[]>([]);
@@ -319,6 +342,45 @@ export default function App() {
   const [jsaDocuments, setJsaDocuments] = useState<any[]>([]);
   const [jsaFormData, setJsaFormData] = useState<any>(initialJSAFormState);
   const [currentJSADoc, setCurrentJSADoc] = useState<any>(null);
+
+  // ป้องกันการบันทึกซ้ำ (Realtime safe)
+  const [isSavingProject, setIsSavingProject] = useState(false);
+  const [isSavingWMS, setIsSavingWMS] = useState(false);
+  const [isSavingJSA, setIsSavingJSA] = useState(false);
+
+  // Modal แก้ไข User
+  const [editUserModal, setEditUserModal] = useState<(UserProfile & { id: string }) | null>(null);
+  const [editUserRoles, setEditUserRoles] = useState<UserRole[]>([]);
+  const [editUserStatus, setEditUserStatus] = useState<UserStatus>("pending");
+  const [editUserPosition, setEditUserPosition] = useState("");
+  const [isSavingUser, setIsSavingUser] = useState(false);
+
+  // ปิด dropdown โปรไฟล์เมื่อคลิกนอก
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (profileDropdownRef.current && !profileDropdownRef.current.contains(e.target as Node)) {
+        setProfileDropdownOpen(false);
+      }
+    };
+    if (profileDropdownOpen) document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [profileDropdownOpen]);
+
+  // ถ้าไม่มีสิทธิ์เข้าถึง tab ปัจจุบัน ให้สลับไป tab แรกที่เข้าถึงได้
+  useEffect(() => {
+    if (!roles.length) return;
+    const map: Record<string, ModuleId> = { project: "projects", wms: "wms", jsa: "jsa", users: "users" };
+    const currentModule = map[activeTab];
+    if (currentModule && !accessibleModules.has(currentModule)) {
+      const order: ModuleId[] = ["projects", "wms", "jsa", "users"];
+      const first = order.find((m) => accessibleModules.has(m));
+      if (first) {
+        const tab = first === "projects" ? "project" : first === "wms" ? "wms" : first === "jsa" ? "jsa" : "users";
+        setActiveTab(tab);
+        setView("list");
+      }
+    }
+  }, [roles, activeTab, accessibleModules]);
 
   // --- 1. Firebase Auth: ถ้ามี user (จาก Login/Google) อยู่แล้ว ไม่ต้อง anonymous ---
   useEffect(() => {
@@ -363,17 +425,23 @@ export default function App() {
     return () => { cancelled = true; };
   }, [user]);
 
-  // --- โหลดรายชื่อผู้ใช้ (สำหรับ SuperAdmin/Admin) ---
+  // --- โหลดรายชื่อผู้ใช้ (Realtime — สำหรับ SuperAdmin/Admin) ---
   useEffect(() => {
     if (!canManageUsers) return;
     setAdminUsersLoading(true);
-    getDocs(usersRef())
-      .then((snap) => {
+    const unsub = onSnapshot(
+      usersRef(),
+      (snap) => {
         const list = snap.docs.map((d) => ({ ...d.data(), id: d.id } as UserProfile & { id: string }));
         setAdminUsers(list);
-      })
-      .catch(() => setAdminUsers([]))
-      .finally(() => setAdminUsersLoading(false));
+        setAdminUsersLoading(false);
+      },
+      () => {
+        setAdminUsers([]);
+        setAdminUsersLoading(false);
+      }
+    );
+    return () => unsub();
   }, [canManageUsers]);
 
   // --- 2. Firestore Real-time Sync ---
@@ -440,6 +508,7 @@ export default function App() {
 
   const handleProjectSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSavingProject) return;
     if (!user) return alert("รอการยืนยันตัวตนสักครู่...");
     const isNew = !projectFormData.id;
     const docId = isNew ? Date.now().toString() : projectFormData.id;
@@ -448,7 +517,7 @@ export default function App() {
       id: docId,
       updatedAt: new Date().toISOString(),
     };
-
+    setIsSavingProject(true);
     try {
       if (useApiForSave()) {
         await api.saveProject(docToSave);
@@ -460,6 +529,8 @@ export default function App() {
     } catch (err) {
       console.error("Error saving Project:", err);
       alert("ไม่สามารถบันทึกข้อมูลโครงการได้");
+    } finally {
+      setIsSavingProject(false);
     }
   };
 
@@ -531,6 +602,7 @@ export default function App() {
 
   const handleWMSSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSavingWMS) return;
     if (!user) return alert("รอการยืนยันตัวตนสักครู่...");
     const isNew = !wmsFormData.id;
     const docId = isNew ? Date.now().toString() : wmsFormData.id;
@@ -539,7 +611,7 @@ export default function App() {
       id: docId,
       updatedAt: new Date().toISOString(),
     };
-
+    setIsSavingWMS(true);
     try {
       if (useApiForSave()) {
         await api.saveWMS(docToSave);
@@ -552,6 +624,8 @@ export default function App() {
     } catch (err) {
       console.error("Error saving WMS:", err);
       alert("ไม่สามารถบันทึกข้อมูลได้");
+    } finally {
+      setIsSavingWMS(false);
     }
   };
 
@@ -600,6 +674,7 @@ export default function App() {
 
   const handleJSASubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSavingJSA) return;
     if (!user) return alert("รอการยืนยันตัวตนสักครู่...");
     const isNew = !jsaFormData.id;
     const docId = isNew ? Date.now().toString() : jsaFormData.id;
@@ -608,7 +683,7 @@ export default function App() {
       id: docId,
       updatedAt: new Date().toISOString(),
     };
-
+    setIsSavingJSA(true);
     try {
       if (useApiForSave()) {
         await api.saveJSA(docToSave);
@@ -621,6 +696,8 @@ export default function App() {
     } catch (err) {
       console.error("Error saving JSA:", err);
       alert("ไม่สามารถบันทึกข้อมูลได้");
+    } finally {
+      setIsSavingJSA(false);
     }
   };
 
@@ -636,6 +713,53 @@ export default function App() {
         console.error("Error deleting JSA:", err);
         alert("ไม่สามารถลบเอกสาร JSA ได้");
       }
+    }
+  };
+
+  // === User Management Handlers ===
+  const openEditUserModal = (u: UserProfile & { id: string }) => {
+    setEditUserModal(u);
+    setEditUserRoles(Array.isArray(u.role) ? [...u.role] : []);
+    setEditUserStatus(u.status);
+    setEditUserPosition(u.position || "");
+  };
+
+  const toggleEditRole = (role: UserRole) => {
+    setEditUserRoles((prev) =>
+      prev.includes(role) ? prev.filter((r) => r !== role) : [...prev, role]
+    );
+  };
+
+  const handleSaveUser = async () => {
+    if (!editUserModal || isSavingUser) return;
+    if (editUserRoles.length === 0) {
+      alert("ต้องกำหนดบทบาทอย่างน้อย 1 บทบาท");
+      return;
+    }
+    setIsSavingUser(true);
+    try {
+      await setDoc(
+        userDoc(editUserModal.id),
+        {
+          role: editUserRoles,
+          status: editUserStatus,
+          position: editUserPosition,
+        },
+        { merge: true }
+      );
+      setAdminUsers((prev) =>
+        prev.map((u) =>
+          u.id === editUserModal.id
+            ? { ...u, role: editUserRoles, status: editUserStatus, position: editUserPosition }
+            : u
+        )
+      );
+      setEditUserModal(null);
+    } catch (err) {
+      console.error("Error updating user:", err);
+      alert("ไม่สามารถบันทึกข้อมูลผู้ใช้งานได้");
+    } finally {
+      setIsSavingUser(false);
     }
   };
 
@@ -856,9 +980,11 @@ export default function App() {
           </button>
           <button
             type="submit"
-            className="px-6 py-2 bg-emerald-600 rounded-lg text-white flex items-center"
+            disabled={isSavingProject}
+            className="px-6 py-2 bg-emerald-600 rounded-lg text-white flex items-center disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            <Save className="w-5 h-5 mr-2" /> บันทึกข้อมูลโครงการ
+            {isSavingProject ? <Loader2 className="w-5 h-5 mr-2 animate-spin" /> : <Save className="w-5 h-5 mr-2" />}
+            {isSavingProject ? "กำลังบันทึก..." : "บันทึกข้อมูลโครงการ"}
           </button>
         </div>
       </form>
@@ -1123,7 +1249,7 @@ export default function App() {
             {/* URL Input */}
             <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 flex flex-col gap-2 bg-gray-50">
               <div className="flex items-center gap-1 mb-1">
-                <Link size={18} className="text-purple-500" />
+                <LinkIcon size={18} className="text-purple-500" />
                 <span className="text-sm font-medium text-gray-700">เพิ่ม URL / ลิงก์</span>
               </div>
               <input
@@ -1160,7 +1286,7 @@ export default function App() {
                     <img src={att.data} alt={att.name} className="w-12 h-12 object-cover rounded border flex-shrink-0" />
                   ) : att.type === "url" ? (
                     <div className="w-12 h-12 flex items-center justify-center bg-purple-100 rounded border flex-shrink-0">
-                      <Link size={20} className="text-purple-600" />
+                      <LinkIcon size={20} className="text-purple-600" />
                     </div>
                   ) : (
                     <div className="w-12 h-12 flex items-center justify-center bg-blue-100 rounded border flex-shrink-0">
@@ -1220,9 +1346,11 @@ export default function App() {
           </button>
           <button
             type="submit"
-            className="px-6 py-2 bg-blue-600 rounded-lg text-white flex items-center"
+            disabled={isSavingWMS}
+            className="px-6 py-2 bg-blue-600 rounded-lg text-white flex items-center disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            <Save className="w-5 h-5 mr-2" /> บันทึกเอกสารลง Cloud
+            {isSavingWMS ? <Loader2 className="w-5 h-5 mr-2 animate-spin" /> : <Save className="w-5 h-5 mr-2" />}
+            {isSavingWMS ? "กำลังบันทึก..." : "บันทึกเอกสารลง Cloud"}
           </button>
         </div>
       </form>
@@ -1335,7 +1463,7 @@ export default function App() {
                 {(currentWMSDoc?.attachments as any[] || []).filter((a: any) => a.type === "url").length > 0 && (
                   <div className="px-4 py-3">
                     <p className="text-xs font-semibold text-purple-600 uppercase tracking-wide mb-2 flex items-center gap-1">
-                      <Link size={12} /> ลิงก์ URL
+                      <LinkIcon size={12} /> ลิงก์ URL
                     </p>
                     <div className="space-y-1">
                       {(currentWMSDoc?.attachments as any[] || []).filter((a: any) => a.type === "url").map((att: any, idx: number) => (
@@ -1347,7 +1475,7 @@ export default function App() {
                           className="flex items-center gap-2 p-2 rounded-lg hover:bg-purple-50 transition-colors group"
                         >
                           <div className="w-8 h-8 flex items-center justify-center bg-purple-100 rounded flex-shrink-0 group-hover:bg-purple-200">
-                            <Link size={14} className="text-purple-600" />
+                            <LinkIcon size={14} className="text-purple-600" />
                           </div>
                           <span className="text-xs text-gray-700 truncate flex-1 group-hover:text-purple-700">{att.name}</span>
                           <Eye size={12} className="text-gray-400 group-hover:text-purple-600 flex-shrink-0" />
@@ -1799,9 +1927,11 @@ export default function App() {
           </button>
           <button
             type="submit"
-            className="px-6 py-2 bg-orange-600 rounded-lg text-white flex items-center"
+            disabled={isSavingJSA}
+            className="px-6 py-2 bg-orange-600 rounded-lg text-white flex items-center disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            <Save className="w-5 h-5 mr-2" /> บันทึก JSA ลง Cloud
+            {isSavingJSA ? <Loader2 className="w-5 h-5 mr-2 animate-spin" /> : <Save className="w-5 h-5 mr-2" />}
+            {isSavingJSA ? "กำลังบันทึก..." : "บันทึก JSA ลง Cloud"}
           </button>
         </div>
       </form>
@@ -2008,10 +2138,33 @@ export default function App() {
           sidebarCollapsed ? "w-16" : "w-64"
         } bg-gray-900 text-white flex flex-col print:hidden shadow-xl z-10 transition-all duration-300 ease-in-out flex-shrink-0`}
       >
+        {/* โปรไฟล์ Card บนสุด Sidebar */}
+        <div className="flex-shrink-0 border-b border-gray-800 p-3">
+          <div className={`flex items-center gap-3 ${sidebarCollapsed ? "justify-center" : ""}`}>
+            <div className="flex-shrink-0 w-10 h-10 rounded-full overflow-hidden bg-gray-700 flex items-center justify-center">
+              {(user?.photoURL ?? userProfile?.photoURL) ? (
+                <img src={(user?.photoURL ?? userProfile?.photoURL) as string} alt="" className="w-full h-full object-cover" />
+              ) : (
+                <UserCircle className="w-6 h-6 text-gray-400" />
+              )}
+            </div>
+            {!sidebarCollapsed && userProfile && (
+              <div className="min-w-0 flex-1">
+                <p className="font-semibold text-sm truncate text-white">
+                  {userProfile.firstName} {userProfile.lastName}
+                </p>
+                <p className="text-xs text-gray-400 truncate">
+                  {Array.isArray(userProfile.role) ? userProfile.role.join(", ") : ""}
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* Header + Toggle */}
-        <div className="flex items-center justify-between border-b border-gray-800 h-14 px-3 flex-shrink-0">
+        <div className="flex items-center justify-between border-b border-gray-800 h-12 px-3 flex-shrink-0">
           {!sidebarCollapsed && (
-            <span className="font-bold text-xl tracking-wider truncate">SHE System</span>
+            <span className="font-bold text-lg tracking-wider truncate">SHE System</span>
           )}
           <button
             onClick={() => setSidebarCollapsed((c) => !c)}
@@ -2030,6 +2183,7 @@ export default function App() {
 
         <nav className="flex-1 pt-4 pb-4 space-y-1 px-2">
           {/* Project */}
+          {canAccess("projects") && (
           <button
             onClick={() => { setActiveTab("project"); setView("list"); }}
             title="ข้อมูลโครงการ"
@@ -2049,8 +2203,10 @@ export default function App() {
               </div>
             )}
           </button>
+          )}
 
           {/* WMS */}
+          {canAccess("wms") && (
           <button
             onClick={() => { setActiveTab("wms"); setView("list"); }}
             title="Method Statement"
@@ -2070,8 +2226,10 @@ export default function App() {
               </div>
             )}
           </button>
+          )}
 
           {/* JSA */}
+          {canAccess("jsa") && (
           <button
             onClick={() => { setActiveTab("jsa"); setView("list"); }}
             title="Job Safety Analysis"
@@ -2091,6 +2249,7 @@ export default function App() {
               </div>
             )}
           </button>
+          )}
         </nav>
 
         {/* จัดการผู้ใช้งาน - เฉพาะ SuperAdmin/Admin */}
@@ -2098,8 +2257,8 @@ export default function App() {
           <div className="border-t border-gray-800 pt-2 px-2 pb-2">
             <button
               onClick={() => { setActiveTab("users"); setView("list"); }}
-              title="จัดการผู้ใช้งาน"
-              className={`w-full flex items-center rounded-lg transition-colors ${
+              title={`จัดการผู้ใช้งาน${pendingUsersCount > 0 ? ` (${pendingUsersCount} รออนุมัติ)` : ""}`}
+              className={`w-full flex items-center rounded-lg transition-colors relative ${
                 sidebarCollapsed ? "justify-center px-2 py-3" : "px-4 py-3"
               } ${
                 activeTab === "users"
@@ -2107,11 +2266,27 @@ export default function App() {
                   : "text-gray-400 hover:bg-gray-800 hover:text-white"
               }`}
             >
-              <Users className="w-5 h-5 flex-shrink-0" />
+              {/* ไอคอน Users พร้อม badge แจ้งเตือน */}
+              <div className="relative flex-shrink-0">
+                <Users className="w-5 h-5" />
+                {pendingUsersCount > 0 && (
+                  <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-0.5 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center leading-none">
+                    {pendingUsersCount > 99 ? "99+" : pendingUsersCount}
+                  </span>
+                )}
+              </div>
+
               {!sidebarCollapsed && (
-                <div className="text-left ml-3">
-                  <div className="font-semibold leading-tight">จัดการผู้ใช้งาน</div>
-                  <div className="text-[10px] opacity-70">User Management</div>
+                <div className="flex-1 flex items-center justify-between ml-3 min-w-0">
+                  <div className="text-left min-w-0">
+                    <div className="font-semibold leading-tight">จัดการผู้ใช้งาน</div>
+                    <div className="text-[10px] opacity-70">User Management</div>
+                  </div>
+                  {pendingUsersCount > 0 && (
+                    <span className="flex-shrink-0 ml-2 min-w-[20px] h-5 px-1 bg-red-500 text-white text-xs font-bold rounded-full flex items-center justify-center">
+                      {pendingUsersCount > 99 ? "99+" : pendingUsersCount}
+                    </span>
+                  )}
                 </div>
               )}
             </button>
@@ -2157,32 +2332,68 @@ export default function App() {
       </div>
 
       {/* Main Content Area */}
-      <div className="flex-1 overflow-y-auto print:overflow-visible relative">
+      <div className="flex-1 overflow-y-auto print:overflow-visible relative flex flex-col">
+        {/* แถบมุมขวาบน: โปรไฟล์ + Dropdown (อัพเดทโปรไฟล์ / Logout) */}
+        <div className="flex-shrink-0 sticky top-0 z-20 bg-white/95 backdrop-blur border-b border-gray-200 print:hidden">
+          <div className="flex items-center justify-end h-14 px-4 md:px-6">
+            <div className="relative" ref={profileDropdownRef}>
+              <button
+                type="button"
+                onClick={() => setProfileDropdownOpen((o) => !o)}
+                className="flex items-center gap-2 rounded-full p-1 pr-2 hover:bg-gray-100 transition-colors"
+                aria-expanded={profileDropdownOpen}
+                aria-haspopup="true"
+              >
+                <div className="w-8 h-8 rounded-full overflow-hidden bg-gray-200 flex items-center justify-center flex-shrink-0">
+                  {(user?.photoURL ?? userProfile?.photoURL) ? (
+                    <img src={(user?.photoURL ?? userProfile?.photoURL) as string} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    <UserCircle className="w-5 h-5 text-gray-500" />
+                  )}
+                </div>
+                <ChevronDown className={`w-4 h-4 text-gray-500 transition-transform ${profileDropdownOpen ? "rotate-180" : ""}`} />
+              </button>
+              {profileDropdownOpen && (
+                <div className="absolute right-0 mt-1 w-52 py-1 bg-white rounded-lg shadow-lg border border-gray-200 z-30">
+                  <Link
+                    to="/account"
+                    className="flex items-center gap-2 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-100"
+                    onClick={() => setProfileDropdownOpen(false)}
+                  >
+                    <UserCircle className="w-4 h-4" /> อัพเดทโปรไฟล์
+                  </Link>
+                  <button
+                    type="button"
+                    className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-red-600 hover:bg-red-50"
+                    onClick={async () => {
+                      setProfileDropdownOpen(false);
+                      await authLogout();
+                      navigate("/login");
+                    }}
+                  >
+                    <LogOut className="w-4 h-4" /> Logout
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
         {/* Dynamic List Views based on activeTab */}
         {view === "list" && (
           <div className="p-6 md:p-8 print:hidden max-w-7xl mx-auto">
-            {/* Header: จัดการผู้ใช้งาน (ไม่มีปุ่มสร้างใหม่) */}
-            {activeTab === "users" ? (
-              <div className="mb-6 bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-                <div className="flex items-center">
-                  <div className="p-3 rounded-lg mr-4 bg-violet-100 text-violet-600">
-                    <Users size={28} />
-                  </div>
-                  <div>
-                    <h1 className="text-2xl font-bold text-gray-800">จัดการผู้ใช้งาน</h1>
-                    <p className="text-gray-500 text-sm mt-1">User Management (SuperAdmin/Admin)</p>
-                  </div>
-                </div>
-              </div>
-            ) : (
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-              <div className="flex items-center mb-4 md:mb-0">
+            {/* Header Card — layout เดียวกันทุกเมนู */}
+            <div className="flex flex-row justify-between items-center mb-6 bg-white p-6 rounded-xl shadow-sm border border-gray-100 min-h-[88px]">
+              {/* ซ้าย: ไอคอน + ชื่อเมนู */}
+              <div className="flex items-center">
                 <div
-                  className={`p-3 rounded-lg mr-4 ${
+                  className={`p-3 rounded-lg mr-4 flex-shrink-0 ${
                     activeTab === "wms"
                       ? "bg-blue-100 text-blue-600"
                       : activeTab === "jsa"
                       ? "bg-orange-100 text-orange-600"
+                      : activeTab === "users"
+                      ? "bg-violet-100 text-violet-600"
                       : "bg-emerald-100 text-emerald-600"
                   }`}
                 >
@@ -2190,6 +2401,8 @@ export default function App() {
                     <LayoutDashboard size={28} />
                   ) : activeTab === "jsa" ? (
                     <ShieldAlert size={28} />
+                  ) : activeTab === "users" ? (
+                    <Users size={28} />
                   ) : (
                     <Briefcase size={28} />
                   )}
@@ -2200,6 +2413,8 @@ export default function App() {
                       ? "Method Statement (WMS)"
                       : activeTab === "jsa"
                       ? "Job Safety Analysis (JSA)"
+                      : activeTab === "users"
+                      ? "จัดการผู้ใช้งาน"
                       : "ข้อมูลโครงการ (Projects)"}
                   </h1>
                   <p className="text-gray-500 text-sm mt-1">
@@ -2207,30 +2422,52 @@ export default function App() {
                       ? "ระบบจัดการรายการเอกสารวิธีการปฏิบัติงาน"
                       : activeTab === "jsa"
                       ? "ระบบจัดการรายการการวิเคราะห์ความปลอดภัย"
+                      : activeTab === "users"
+                      ? "User Management (SuperAdmin/Admin)"
                       : "ระบบจัดการข้อมูลโครงการหลักอ้างอิง"}
                   </p>
                 </div>
               </div>
-              <button
-                onClick={() => {
-                  if (activeTab === "wms") setWmsFormData(initialWMSFormState);
-                  if (activeTab === "jsa") setJsaFormData(initialJSAFormState);
-                  if (activeTab === "project")
-                    setProjectFormData(initialProjectFormState);
-                  setView("form");
-                }}
-                className={`flex items-center px-5 py-2.5 text-white rounded-lg shadow-sm transition-all font-medium ${
-                  activeTab === "wms"
-                    ? "bg-blue-600 hover:bg-blue-700"
-                    : activeTab === "jsa"
-                    ? "bg-orange-600 hover:bg-orange-700"
-                    : "bg-emerald-600 hover:bg-emerald-700"
-                }`}
-              >
-                <Plus className="w-5 h-5 mr-2" /> สร้างใหม่
-              </button>
+
+              {/* ขวา: ปุ่ม action หรือ badge (ขนาดเท่ากันทุกเมนู) */}
+              <div className="flex-shrink-0 ml-4">
+                {activeTab === "users" ? (
+                  /* Users: แสดงจำนวนรออนุมัติ */
+                  pendingUsersCount > 0 ? (
+                    <div className="flex items-center gap-2 px-4 py-2.5 bg-red-50 border border-red-200 rounded-lg">
+                      <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse flex-shrink-0" />
+                      <span className="text-sm font-semibold text-red-700">
+                        {pendingUsersCount} รออนุมัติ
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 px-4 py-2.5 bg-green-50 border border-green-200 rounded-lg">
+                      <span className="w-2.5 h-2.5 rounded-full bg-green-500 flex-shrink-0" />
+                      <span className="text-sm font-semibold text-green-700">อนุมัติครบแล้ว</span>
+                    </div>
+                  )
+                ) : canCreate ? (
+                  /* เมนูอื่น: ปุ่มสร้างใหม่ */
+                  <button
+                    onClick={() => {
+                      if (activeTab === "wms") setWmsFormData(initialWMSFormState);
+                      if (activeTab === "jsa") setJsaFormData(initialJSAFormState);
+                      if (activeTab === "project") setProjectFormData(initialProjectFormState);
+                      setView("form");
+                    }}
+                    className={`flex items-center px-5 py-2.5 text-white rounded-lg shadow-sm transition-all font-medium ${
+                      activeTab === "wms"
+                        ? "bg-blue-600 hover:bg-blue-700"
+                        : activeTab === "jsa"
+                        ? "bg-orange-600 hover:bg-orange-700"
+                        : "bg-emerald-600 hover:bg-emerald-700"
+                    }`}
+                  >
+                    <Plus className="w-5 h-5 mr-2" /> สร้างใหม่
+                  </button>
+                ) : null}
+              </div>
             </div>
-            )}
 
             {/* Filter Section (Only for WMS/JSA) */}
             {activeTab !== "project" && activeTab !== "users" && (
@@ -2266,20 +2503,39 @@ export default function App() {
                     <table className="w-full text-left text-sm">
                       <thead className="bg-gray-50 text-gray-600 border-b">
                         <tr>
+                          <th className="px-6 py-3 font-semibold w-14">รูป</th>
                           <th className="px-6 py-3 font-semibold">อีเมล</th>
                           <th className="px-6 py-3 font-semibold">ชื่อ-นามสกุล</th>
                           <th className="px-6 py-3 font-semibold">ตำแหน่ง</th>
                           <th className="px-6 py-3 font-semibold">บทบาท</th>
                           <th className="px-6 py-3 font-semibold">สถานะ</th>
+                          <th className="px-6 py-3 font-semibold w-24 text-right">จัดการ</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-100">
                         {adminUsers.map((u) => (
                           <tr key={u.id} className="hover:bg-gray-50">
-                            <td className="px-6 py-4">{u.email}</td>
-                            <td className="px-6 py-4">{u.firstName} {u.lastName}</td>
-                            <td className="px-6 py-4">{u.position || "-"}</td>
-                            <td className="px-6 py-4">{Array.isArray(u.role) ? u.role.join(", ") : "-"}</td>
+                            <td className="px-6 py-4">
+                              <div className="w-10 h-10 rounded-full overflow-hidden bg-gray-200 flex items-center justify-center flex-shrink-0">
+                                {u.photoURL ? (
+                                  <img src={u.photoURL} alt="" className="w-full h-full object-cover" />
+                                ) : (
+                                  <UserCircle className="w-6 h-6 text-gray-400" />
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 text-gray-700">{u.email}</td>
+                            <td className="px-6 py-4 font-medium text-gray-800">{u.firstName} {u.lastName}</td>
+                            <td className="px-6 py-4 text-gray-600">{u.position || "-"}</td>
+                            <td className="px-6 py-4">
+                              <div className="flex flex-wrap gap-1">
+                                {Array.isArray(u.role) && u.role.length > 0
+                                  ? u.role.map((r) => (
+                                      <span key={r} className="px-2 py-0.5 rounded-full text-xs font-medium bg-violet-100 text-violet-800">{r}</span>
+                                    ))
+                                  : <span className="text-gray-400">-</span>}
+                              </div>
+                            </td>
                             <td className="px-6 py-4">
                               <span
                                 className={`px-2 py-1 rounded text-xs font-medium ${
@@ -2290,16 +2546,22 @@ export default function App() {
                                     : "bg-red-100 text-red-800"
                                 }`}
                               >
-                                {u.status}
+                                {u.status === "approved" ? "อนุมัติแล้ว" : u.status === "pending" ? "รออนุมัติ" : "ถูกปฏิเสธ"}
                               </span>
+                            </td>
+                            <td className="px-6 py-4 text-right">
+                              <button
+                                onClick={() => openEditUserModal(u)}
+                                className="inline-flex items-center gap-1 px-3 py-1.5 bg-violet-50 text-violet-700 hover:bg-violet-100 rounded-md font-medium transition-colors text-xs"
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                                แก้ไข
+                              </button>
                             </td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
-                    <p className="px-6 py-3 text-sm text-gray-500 border-t border-gray-100">
-                      อัปเดตสถานะ/บทบาทใน Firestore: JSA Work Method/root/users/{"{uid}"}
-                    </p>
                   </>
                 ))}
 
@@ -2324,9 +2586,9 @@ export default function App() {
                         </th>
                         <th className="px-6 py-4 font-semibold">Location</th>
                         <th className="px-6 py-4 font-semibold">Client</th>
-                        <th className="px-6 py-4 font-semibold w-24 text-right">
-                          จัดการ
-                        </th>
+                        {canDelete && (
+                          <th className="px-6 py-4 font-semibold w-24 text-right">จัดการ</th>
+                        )}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
@@ -2344,6 +2606,7 @@ export default function App() {
                           <td className="px-6 py-4 text-gray-500">
                             {proj.clientName || "-"}
                           </td>
+                          {canDelete && (
                           <td className="px-6 py-4 text-right">
                             <button
                               onClick={() => deleteProject(proj.id)}
@@ -2352,6 +2615,7 @@ export default function App() {
                               <Trash2 className="w-4 h-4" />
                             </button>
                           </td>
+                          )}
                         </tr>
                       ))}
                     </tbody>
@@ -2419,6 +2683,7 @@ export default function App() {
                           </td>
                           <td className="px-6 py-4 text-right">
                             <div className="flex items-center justify-end gap-2">
+                              {/* ปุ่มเปิดดู: ทุก role เห็น */}
                               <button
                                 onClick={() => {
                                   activeTab === "wms"
@@ -2434,6 +2699,8 @@ export default function App() {
                               >
                                 เปิดดู
                               </button>
+                              {/* ปุ่มแก้ไข: เฉพาะ role ที่มีสิทธิ์ edit */}
+                              {canEdit && (
                               <button
                                 onClick={() => {
                                   if (activeTab === "wms") {
@@ -2444,15 +2711,14 @@ export default function App() {
                                     setView("form");
                                   }
                                 }}
-                                className={`inline-flex items-center px-3 py-1.5 rounded-md font-medium transition-colors ${
-                                  activeTab === "wms"
-                                    ? "bg-yellow-50 text-yellow-700 hover:bg-yellow-100"
-                                    : "bg-yellow-50 text-yellow-700 hover:bg-yellow-100"
-                                }`}
+                                className="inline-flex items-center px-3 py-1.5 rounded-md font-medium transition-colors bg-yellow-50 text-yellow-700 hover:bg-yellow-100"
                               >
                                 <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5 mr-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                                 แก้ไข
                               </button>
+                              )}
+                              {/* ปุ่มลบ: เฉพาะ role ที่มีสิทธิ์ delete */}
+                              {canDelete && (
                               <button
                                 onClick={() =>
                                   activeTab === "wms"
@@ -2463,6 +2729,7 @@ export default function App() {
                               >
                                 <Trash2 className="w-4 h-4" />
                               </button>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -2495,6 +2762,117 @@ export default function App() {
       `,
         }}
       />
+
+      {/* ===== Modal แก้ไขสิทธิ์ผู้ใช้งาน ===== */}
+      {editUserModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 print:hidden">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
+            {/* Header */}
+            <div className="bg-violet-600 px-6 py-4 flex items-center justify-between">
+              <h2 className="text-white font-bold text-lg">แก้ไขผู้ใช้งาน</h2>
+              <button
+                type="button"
+                onClick={() => setEditUserModal(null)}
+                className="text-white/80 hover:text-white"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* User Info (read-only) */}
+            <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-4">
+              <div className="w-14 h-14 rounded-full overflow-hidden bg-gray-200 flex items-center justify-center flex-shrink-0">
+                {editUserModal.photoURL ? (
+                  <img src={editUserModal.photoURL} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  <UserCircle className="w-8 h-8 text-gray-400" />
+                )}
+              </div>
+              <div>
+                <p className="font-semibold text-gray-800 text-base">{editUserModal.firstName} {editUserModal.lastName}</p>
+                <p className="text-gray-500 text-sm">{editUserModal.email}</p>
+              </div>
+            </div>
+
+            {/* Editable Fields */}
+            <div className="px-6 py-4 space-y-5">
+              {/* ตำแหน่ง */}
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1">ตำแหน่ง (Position)</label>
+                <input
+                  type="text"
+                  value={editUserPosition}
+                  onChange={(e) => setEditUserPosition(e.target.value)}
+                  placeholder="เช่น Site Engineer, Safety Officer"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-violet-500 focus:border-violet-500 outline-none"
+                />
+              </div>
+
+              {/* สถานะ */}
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1">สถานะบัญชี (Status)</label>
+                <select
+                  value={editUserStatus}
+                  onChange={(e) => setEditUserStatus(e.target.value as UserStatus)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-violet-500 focus:border-violet-500 outline-none bg-white"
+                >
+                  <option value="approved">อนุมัติแล้ว (Approved)</option>
+                  <option value="pending">รออนุมัติ (Pending)</option>
+                  <option value="rejected">ถูกปฏิเสธ (Rejected)</option>
+                </select>
+              </div>
+
+              {/* บทบาท */}
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">บทบาท (Roles) — เลือกได้มากกว่า 1</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {USER_ROLES.map((role) => (
+                    <label
+                      key={role}
+                      className={`flex items-center gap-2 px-3 py-2.5 rounded-lg border cursor-pointer transition-colors ${
+                        editUserRoles.includes(role)
+                          ? "border-violet-400 bg-violet-50 text-violet-800"
+                          : "border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        className="accent-violet-600 w-4 h-4"
+                        checked={editUserRoles.includes(role)}
+                        onChange={() => toggleEditRole(role)}
+                      />
+                      <span className="text-sm font-medium">{role}</span>
+                    </label>
+                  ))}
+                </div>
+                {editUserRoles.length === 0 && (
+                  <p className="text-xs text-red-500 mt-1">ต้องเลือกบทบาทอย่างน้อย 1 บทบาท</p>
+                )}
+              </div>
+            </div>
+
+            {/* Footer Buttons */}
+            <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setEditUserModal(null)}
+                className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 text-sm"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveUser}
+                disabled={isSavingUser || editUserRoles.length === 0}
+                className="px-4 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 text-sm font-medium flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {isSavingUser ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                {isSavingUser ? "กำลังบันทึก..." : "บันทึก"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
