@@ -23,6 +23,8 @@ import {
   Link,
   X,
   Eye,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 
 import {
@@ -304,6 +306,8 @@ export default function App() {
   const [projectFormData, setProjectFormData] = useState<any>(
     initialProjectFormState
   );
+
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   // WMS State
   const [wmsDocuments, setWmsDocuments] = useState<any[]>([]);
@@ -1999,118 +2003,152 @@ export default function App() {
   return (
     <div className="flex h-screen bg-gray-100 overflow-hidden font-sans">
       {/* Sidebar - Hidden on print */}
-      <div className="w-64 bg-gray-900 text-white flex flex-col print:hidden shadow-xl z-10">
-        <div className="p-5 font-bold text-xl border-b border-gray-800 tracking-wider">
-          SHE System
-        </div>
-        <nav className="flex-1 pt-4 pb-4 space-y-2 px-3">
+      <div
+        className={`${
+          sidebarCollapsed ? "w-16" : "w-64"
+        } bg-gray-900 text-white flex flex-col print:hidden shadow-xl z-10 transition-all duration-300 ease-in-out flex-shrink-0`}
+      >
+        {/* Header + Toggle */}
+        <div className="flex items-center justify-between border-b border-gray-800 h-14 px-3 flex-shrink-0">
+          {!sidebarCollapsed && (
+            <span className="font-bold text-xl tracking-wider truncate">SHE System</span>
+          )}
           <button
-            onClick={() => {
-              setActiveTab("project");
-              setView("list");
-            }}
-            className={`w-full flex items-center px-4 py-3 rounded-lg transition-colors ${
+            onClick={() => setSidebarCollapsed((c) => !c)}
+            className={`flex items-center justify-center w-8 h-8 rounded-lg hover:bg-gray-700 transition-colors flex-shrink-0 ${
+              sidebarCollapsed ? "mx-auto" : "ml-auto"
+            }`}
+            title={sidebarCollapsed ? "ขยาย Sidebar" : "ย่อ Sidebar"}
+          >
+            {sidebarCollapsed ? (
+              <ChevronRight className="w-4 h-4 text-gray-400" />
+            ) : (
+              <ChevronLeft className="w-4 h-4 text-gray-400" />
+            )}
+          </button>
+        </div>
+
+        <nav className="flex-1 pt-4 pb-4 space-y-1 px-2">
+          {/* Project */}
+          <button
+            onClick={() => { setActiveTab("project"); setView("list"); }}
+            title="ข้อมูลโครงการ"
+            className={`w-full flex items-center rounded-lg transition-colors ${
+              sidebarCollapsed ? "justify-center px-2 py-3" : "px-4 py-3"
+            } ${
               activeTab === "project"
                 ? "bg-emerald-600 text-white"
                 : "text-gray-400 hover:bg-gray-800 hover:text-white"
             }`}
           >
-            <Briefcase className="w-5 h-5 mr-3" />
-            <div className="text-left">
-              <div className="font-semibold leading-tight">ข้อมูลโครงการ</div>
-              <div className="text-[10px] opacity-70">Projects</div>
-            </div>
+            <Briefcase className="w-5 h-5 flex-shrink-0" />
+            {!sidebarCollapsed && (
+              <div className="text-left ml-3">
+                <div className="font-semibold leading-tight">ข้อมูลโครงการ</div>
+                <div className="text-[10px] opacity-70">Projects</div>
+              </div>
+            )}
           </button>
 
+          {/* WMS */}
           <button
-            onClick={() => {
-              setActiveTab("wms");
-              setView("list");
-            }}
-            className={`w-full flex items-center px-4 py-3 rounded-lg transition-colors ${
+            onClick={() => { setActiveTab("wms"); setView("list"); }}
+            title="Method Statement"
+            className={`w-full flex items-center rounded-lg transition-colors ${
+              sidebarCollapsed ? "justify-center px-2 py-3" : "px-4 py-3"
+            } ${
               activeTab === "wms"
                 ? "bg-blue-600 text-white"
                 : "text-gray-400 hover:bg-gray-800 hover:text-white"
             }`}
           >
-            <FileText className="w-5 h-5 mr-3" />
-            <div className="text-left">
-              <div className="font-semibold leading-tight">
-                Method Statement
+            <FileText className="w-5 h-5 flex-shrink-0" />
+            {!sidebarCollapsed && (
+              <div className="text-left ml-3">
+                <div className="font-semibold leading-tight">Method Statement</div>
+                <div className="text-[10px] opacity-70">WMS Document</div>
               </div>
-              <div className="text-[10px] opacity-70">WMS Document</div>
-            </div>
+            )}
           </button>
 
+          {/* JSA */}
           <button
-            onClick={() => {
-              setActiveTab("jsa");
-              setView("list");
-            }}
-            className={`w-full flex items-center px-4 py-3 rounded-lg transition-colors ${
+            onClick={() => { setActiveTab("jsa"); setView("list"); }}
+            title="Job Safety Analysis"
+            className={`w-full flex items-center rounded-lg transition-colors ${
+              sidebarCollapsed ? "justify-center px-2 py-3" : "px-4 py-3"
+            } ${
               activeTab === "jsa"
                 ? "bg-orange-600 text-white"
                 : "text-gray-400 hover:bg-gray-800 hover:text-white"
             }`}
           >
-            <ShieldAlert className="w-5 h-5 mr-3" />
-            <div className="text-left">
-              <div className="font-semibold leading-tight">
-                Job Safety Analysis
+            <ShieldAlert className="w-5 h-5 flex-shrink-0" />
+            {!sidebarCollapsed && (
+              <div className="text-left ml-3">
+                <div className="font-semibold leading-tight">Job Safety Analysis</div>
+                <div className="text-[10px] opacity-70">JSA Form</div>
               </div>
-              <div className="text-[10px] opacity-70">JSA Form</div>
-            </div>
+            )}
           </button>
         </nav>
 
         {/* จัดการผู้ใช้งาน - เฉพาะ SuperAdmin/Admin */}
         {canManageUsers && (
-          <div className="border-t border-gray-800 pt-2 px-3 pb-2">
+          <div className="border-t border-gray-800 pt-2 px-2 pb-2">
             <button
-              onClick={() => {
-                setActiveTab("users");
-                setView("list");
-              }}
-              className={`w-full flex items-center px-4 py-3 rounded-lg transition-colors ${
+              onClick={() => { setActiveTab("users"); setView("list"); }}
+              title="จัดการผู้ใช้งาน"
+              className={`w-full flex items-center rounded-lg transition-colors ${
+                sidebarCollapsed ? "justify-center px-2 py-3" : "px-4 py-3"
+              } ${
                 activeTab === "users"
                   ? "bg-violet-600 text-white"
                   : "text-gray-400 hover:bg-gray-800 hover:text-white"
               }`}
             >
-              <Users className="w-5 h-5 mr-3" />
-              <div className="text-left">
-                <div className="font-semibold leading-tight">จัดการผู้ใช้งาน</div>
-                <div className="text-[10px] opacity-70">User Management</div>
-              </div>
+              <Users className="w-5 h-5 flex-shrink-0" />
+              {!sidebarCollapsed && (
+                <div className="text-left ml-3">
+                  <div className="font-semibold leading-tight">จัดการผู้ใช้งาน</div>
+                  <div className="text-[10px] opacity-70">User Management</div>
+                </div>
+              )}
             </button>
           </div>
         )}
 
         {/* Firebase Status Indicator */}
         <div className="p-3 border-t border-gray-800">
-          <div className="flex items-center justify-between">
+          <div className={`flex items-center ${
+            sidebarCollapsed ? "justify-center" : "justify-between"
+          }`}>
             <div className="flex items-center text-xs">
               {user ? (
                 <>
-                  <div className="flex items-center mr-2">
-                    <Wifi className="w-3 h-3 text-green-400 mr-1" />
-                    <Database className="w-3 h-3 text-green-400" />
-                  </div>
                   <div className="flex items-center">
-                    <div className="w-2 h-2 bg-green-400 rounded-full mr-2 animate-pulse"></div>
-                    <span className="text-green-400 font-medium">Connected</span>
+                    <Wifi className="w-3 h-3 text-green-400" />
+                    {!sidebarCollapsed && <Database className="w-3 h-3 text-green-400 ml-1 mr-2" />}
                   </div>
+                  {!sidebarCollapsed && (
+                    <div className="flex items-center">
+                      <div className="w-2 h-2 bg-green-400 rounded-full mr-1.5 animate-pulse"></div>
+                      <span className="text-green-400 font-medium">Connected</span>
+                    </div>
+                  )}
                 </>
               ) : (
                 <>
-                  <div className="flex items-center mr-2">
-                    <Wifi className="w-3 h-3 text-red-400 mr-1 opacity-50" />
-                    <Database className="w-3 h-3 text-red-400 opacity-50" />
-                  </div>
                   <div className="flex items-center">
-                    <div className="w-2 h-2 bg-red-400 rounded-full mr-2"></div>
-                    <span className="text-red-400 font-medium">Offline</span>
+                    <Wifi className="w-3 h-3 text-red-400 opacity-50" />
+                    {!sidebarCollapsed && <Database className="w-3 h-3 text-red-400 opacity-50 ml-1 mr-2" />}
                   </div>
+                  {!sidebarCollapsed && (
+                    <div className="flex items-center">
+                      <div className="w-2 h-2 bg-red-400 rounded-full mr-1.5"></div>
+                      <span className="text-red-400 font-medium">Offline</span>
+                    </div>
+                  )}
                 </>
               )}
             </div>
