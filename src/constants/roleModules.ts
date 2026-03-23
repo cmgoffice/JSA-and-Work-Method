@@ -53,3 +53,35 @@ export function canAccessModule(roles: UserRole[] | undefined, moduleId: ModuleI
   if (!roles?.length) return false;
   return getAccessibleModules(roles).has(moduleId);
 }
+
+/** ชื่อเมนูใน Sidebar ตาม module (ให้สอดคล้องกับ App.tsx) */
+export const MODULE_SIDEBAR_LABELS: Record<ModuleId, string> = {
+  projects: "ข้อมูลโครงการ",
+  wms: "Method Statement (WMS)",
+  jsa: "Job Safety Analysis (JSA)",
+  users: "จัดการผู้ใช้งาน",
+};
+
+const ACTION_LABELS_TH: Record<Action, string> = {
+  view: "เปิดดูรายละเอียด",
+  create: "สร้างรายการใหม่",
+  edit: "แก้ไขรายการ",
+  delete: "ลบรายการ",
+};
+
+/** คำอธิบายสิทธิ์ของ Role หนึ่ง (เมนู Sidebar + การกระทำในรายการโครงการ/WMS/JSA + จัดการผู้ใช้ถ้ามี) */
+export function getRoleGuide(role: UserRole): {
+  sidebarMenus: string[];
+  listActions: string[];
+  userMgmtDescription?: string;
+} {
+  const modules = ROLE_MODULES[role] ?? [];
+  const hasUsersModule = modules.includes("users");
+  return {
+    sidebarMenus: modules.map((m) => MODULE_SIDEBAR_LABELS[m]),
+    listActions: (ROLE_ACTIONS[role] ?? []).map((a) => ACTION_LABELS_TH[a]),
+    userMgmtDescription: hasUsersModule
+      ? "ในเมนูจัดการผู้ใช้งาน: ดูรายการผู้ใช้ และแก้ไขบทบาท (Role) สถานะการอนุมัติ และตำแหน่ง"
+      : undefined,
+  };
+}

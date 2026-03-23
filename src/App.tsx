@@ -54,9 +54,205 @@ import { seedMockDataToFirestore } from "./seedData";
 import { api, useApiForSave } from "./api";
 import { useAuth } from "./contexts/AuthContext";
 import { logout as authLogout } from "./services/authService";
-import { getAccessibleModules, getAccessibleActions, canAccessModule, type ModuleId } from "./constants/roleModules";
+import {
+  getAccessibleModules,
+  getAccessibleActions,
+  canAccessModule,
+  getRoleGuide,
+  type ModuleId,
+} from "./constants/roleModules";
 import type { UserProfile, UserRole, UserStatus } from "./types/auth";
 import { USER_ROLES } from "./types/auth";
+
+/** แก้ path รูปและลิงก์ให้ Word เปิดได้ (ต้องเป็น URL เต็ม) */
+const prepareHtmlForWordExport = (fragment: string): string => {
+  if (typeof window === "undefined") return fragment;
+  const base = window.location.origin;
+  return fragment
+    .replace(/src="\//g, `src="${base}/`)
+    .replace(/href="\//g, `href="${base}/`);
+};
+
+const buildWordExportStyles = (isLandscape: boolean): string => {
+  const pageRule = isLandscape
+    ? `@page { size: A4 landscape; margin: 9mm 11mm; }`
+    : `@page { size: A4 portrait; margin: 11mm 13mm; }`;
+  return `
+        ${pageRule}
+        @font-face {
+          font-family: 'TH SarabunPSK';
+          src: url('https://cdn.jsdelivr.net/gh/SarabunConsortium/TH-Sarabun-PSK@master/THSarabunPSK%20Regular.ttf') format('truetype');
+          font-weight: 400;
+          font-style: normal;
+        }
+        @font-face {
+          font-family: 'TH SarabunPSK';
+          src: url('https://cdn.jsdelivr.net/gh/SarabunConsortium/TH-Sarabun-PSK@master/THSarabunPSK%20Bold.ttf') format('truetype');
+          font-weight: 700;
+          font-style: normal;
+        }
+        body {
+          font-family: 'TH SarabunPSK', 'Sarabun', 'Cordia New', sans-serif;
+          font-size: 18pt;
+          line-height: 1.35;
+          color: #111827;
+          margin: 0;
+          padding: 0;
+        }
+        p { margin: 0.15em 0; font-size: 18pt; line-height: 1.35; }
+        h1, h2, h3 { font-family: 'TH SarabunPSK', 'Sarabun', 'Cordia New', sans-serif; }
+
+        /* Word: แปลงเฉพาะตารางนอก (หัวซ้ำ) เป็นบล็อก — ใช้ > ไม่ให้กระทบตาราง JSA ด้านใน */
+        table.wms-print-outer-table > thead,
+        table.wms-print-outer-table > tbody,
+        table.wms-print-outer-table > thead > tr,
+        table.wms-print-outer-table > tbody > tr,
+        table.wms-print-outer-table > thead > tr > th,
+        table.wms-print-outer-table > tbody > tr > td,
+        table.jsa-print-outer-table > thead,
+        table.jsa-print-outer-table > tbody,
+        table.jsa-print-outer-table > thead > tr,
+        table.jsa-print-outer-table > tbody > tr,
+        table.jsa-print-outer-table > thead > tr > th,
+        table.jsa-print-outer-table > tbody > tr > td {
+          display: block !important;
+          width: 100% !important;
+          height: auto !important;
+        }
+
+        .wms-export-title-table {
+          width: 100%;
+          border-collapse: collapse;
+          margin-bottom: 8pt;
+          border-bottom: 2.25pt solid #1f2937;
+        }
+        .wms-export-title-table td {
+          border: none;
+          vertical-align: top;
+          padding: 0 6pt 8pt 6pt;
+        }
+        .wms-export-title-table h1 {
+          font-size: 22pt;
+          font-weight: bold;
+          text-transform: uppercase;
+          margin: 0;
+          letter-spacing: 0.02em;
+        }
+        .wms-export-title-table h2 {
+          font-size: 20pt;
+          font-weight: 600;
+          margin: 4pt 0 0 0;
+        }
+        .wms-export-title-table h3 {
+          font-size: 18pt;
+          font-weight: normal;
+          color: #374151;
+          margin: 4pt 0 0 0;
+        }
+        .wms-export-title-table .wms-fm-code {
+          font-size: 17pt;
+          font-weight: 600;
+          color: #4b5563;
+        }
+        .wms-export-title-table img { max-width: 200px; height: auto; display: block; }
+
+        .wms-export-meta-table {
+          width: 100%;
+          border-collapse: collapse;
+          margin-bottom: 10pt;
+          border: 1pt solid #9ca3af;
+        }
+        .wms-export-meta-table th,
+        .wms-export-meta-table td {
+          border: 1pt solid #9ca3af;
+          padding: 4pt 8pt;
+          font-size: 18pt;
+          vertical-align: middle;
+        }
+        .wms-export-meta-table th {
+          background: #f3f4f6;
+          font-weight: bold;
+          text-align: left;
+          width: 22%;
+        }
+        .wms-export-meta-table td { text-align: center; }
+        .wms-export-meta-table td.wms-proj-val {
+          color: #1e40af;
+          font-weight: bold;
+        }
+
+        .wms-export-heading {
+          font-weight: bold;
+          background-color: #f3f4f6;
+          padding: 4pt 8pt;
+          text-transform: uppercase;
+          font-size: 19pt;
+          margin-top: 8pt;
+          margin-bottom: 3pt;
+          border: 1pt solid #e5e7eb;
+          line-height: 1.25;
+        }
+        .wms-export-sub {
+          font-weight: 600;
+          font-size: 18.5pt;
+          margin: 6pt 0 2pt 0;
+          padding-left: 10pt;
+        }
+        .wms-export-sections { margin-top: 4pt; }
+        .wms-export-sections > div { margin-bottom: 2pt; }
+
+        .wms-export-body, .content {
+          margin-left: 12pt;
+          margin-top: 2pt;
+          margin-bottom: 8pt;
+          white-space: pre-wrap;
+          font-size: 18pt;
+          line-height: 1.32;
+        }
+        .content p { margin: 0.12em 0; font-size: 18pt; line-height: 1.32; }
+        .content img {
+          max-width: 100%;
+          height: auto;
+          border: 1pt solid #d1d5db;
+          margin: 8pt 0;
+          display: block;
+        }
+
+        /* JSA — Word ไม่เข้าใจ grid ของ Tailwind */
+        .jsa-header {
+          background-color: #fae6d1;
+          border: 1pt solid #000;
+          padding: 8pt 10pt;
+          margin-bottom: 8pt;
+        }
+        .jsa-header .grid {
+          display: block !important;
+        }
+        .jsa-header .grid > div {
+          display: block !important;
+          width: 100% !important;
+          max-width: 100% !important;
+          margin-bottom: 3pt;
+        }
+        .jsa-header table { width: 100%; border: none; margin: 0; }
+        .jsa-header td { border: none; font-size: 18pt; padding: 2pt 4pt; vertical-align: top; }
+        .jsa-print-outer-td > table {
+          width: 100%;
+          border-collapse: collapse;
+          border: 1pt solid #000;
+        }
+        .jsa-print-outer-td > table th,
+        .jsa-print-outer-td > table td {
+          border: 1pt solid #000;
+          padding: 3pt 5pt;
+          font-size: 17pt;
+          vertical-align: top;
+        }
+        .jsa-print-outer-td > table thead th { background: #fae6d1; text-align: center; }
+        .jsa-print-outer-td > table tbody td { background: #e6f2e6; }
+        .dotted-border td { border-bottom: 1pt dotted #000; }
+      `;
+};
 
 // --- Helper Function: Export to MS Word ---
 const exportToWord = (
@@ -64,29 +260,16 @@ const exportToWord = (
   filename: string = "Document.doc",
   isLandscape: boolean = false
 ) => {
-  const landscapeCSS = isLandscape
-    ? `@page { size: landscape; margin: 2cm; }`
-    : `@page { size: portrait; margin: 2cm; }`;
   const preHtml = `
     <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
     <head>
       <meta charset='utf-8'>
-      <title>Export HTML To Doc</title>
+      <title>Export</title>
+      <!--[if gte mso 9]><xml>
+        <w:WordDocument><w:View>Print</w:View><w:Zoom>100</w:Zoom></w:WordDocument>
+      </xml><![endif]-->
       <style>
-        ${landscapeCSS}
-        body { font-family: 'Sarabun', 'Cordia New', sans-serif; font-size: 14pt; }
-        h1, h2, h3 { font-family: 'Sarabun', 'Cordia New', sans-serif; }
-        table { border-collapse: collapse; width: 100%; margin-bottom: 20px; }
-        table, th, td { border: 1px solid black; }
-        th, td { padding: 8px; text-align: left; }
-        .section-title { font-weight: bold; font-size: 16pt; text-transform: uppercase; margin-top: 20px; background-color: #f0f0f0; padding: 5px; }
-        .sub-section { font-weight: bold; margin-top: 10px; margin-left: 15px; }
-        .content { margin-left: 15px; margin-bottom: 10px; white-space: pre-wrap; }
-        .content img { max-width: 100%; height: auto; border-radius: 8px; margin-top: 10px; margin-bottom: 10px; border: 1px solid #ddd; display: block; }
-        /* JSA Specific Styles */
-        .jsa-header { background-color: #fae6d1; padding: 15px; margin-bottom: 10px; }
-        .jsa-row { background-color: #e6f2e6; }
-        .dotted-border td { border-bottom: 1px dotted black; }
+        ${buildWordExportStyles(isLandscape)}
       </style>
     </head>
     <body>
@@ -95,7 +278,7 @@ const exportToWord = (
   const element = document.getElementById(elementId);
   if (!element) return;
 
-  const html = preHtml + element.innerHTML + postHtml;
+  const html = preHtml + prepareHtmlForWordExport(element.innerHTML) + postHtml;
   const blob = new Blob(["\ufeff", html], { type: "application/msword" });
   const url =
     "data:application/vnd.ms-word;charset=utf-8," + encodeURIComponent(html);
@@ -114,30 +297,12 @@ const exportToWord = (
 
 // --- CMG Logo Component ---
 const CMGLogo = ({ className = "" }) => (
-  <div
-    className={`border-2 border-red-600 bg-white flex flex-col items-center justify-center py-1 px-2 ${className}`}
-    style={{ minWidth: "180px", maxWidth: "220px" }}
-  >
-    <div
-      className="text-red-600 font-black leading-none"
-      style={{
-        fontFamily: "Arial, sans-serif",
-        fontSize: "36px",
-        letterSpacing: "1px",
-      }}
-    >
-      CMG
-    </div>
-    <div
-      className="text-blue-700 font-bold mt-1"
-      style={{
-        fontSize: "9px",
-        fontFamily: "Arial, sans-serif",
-        whiteSpace: "nowrap",
-      }}
-    >
-      Engineering & Construction Co.,Ltd.
-    </div>
+  <div className={`bg-white flex items-center ${className}`} style={{ minWidth: "180px", maxWidth: "220px" }}>
+    <img
+      src="/logo.png"
+      alt="CMG Logo"
+      className="w-full h-auto object-contain"
+    />
   </div>
 );
 
@@ -296,6 +461,8 @@ const initialJSAFormState = {
 export default function App() {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<"project" | "wms" | "jsa" | "users">("project");
+  /** แท็บย่อยในหน้าจัดการผู้ใช้งาน */
+  const [userMgmtSubTab, setUserMgmtSubTab] = useState<"list" | "roleGuide">("list");
   const [view, setView] = useState("list"); // 'list', 'form', 'detail'
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
   const profileDropdownRef = useRef<HTMLDivElement>(null);
@@ -381,6 +548,10 @@ export default function App() {
       }
     }
   }, [roles, activeTab, accessibleModules]);
+
+  useEffect(() => {
+    if (activeTab !== "users") setUserMgmtSubTab("list");
+  }, [activeTab]);
 
   // --- 1. Firebase Auth: ถ้ามี user (จาก Login/Google) อยู่แล้ว ไม่ต้อง anonymous ---
   useEffect(() => {
@@ -1493,93 +1664,107 @@ export default function App() {
         <div className="flex-1 min-w-0">
       <div
         id="printable-wms"
-        className="bg-white p-10 md:p-16 rounded-xl shadow-md mx-auto"
-        style={{ maxWidth: "210mm", minHeight: "297mm" }}
+        className="document-export-preview wms-print-document bg-white p-6 md:p-10 rounded-xl shadow-md mx-auto min-h-[297mm] print:min-h-0 print:rounded-none print:shadow-none print:p-0"
+        style={{ maxWidth: "210mm" }}
       >
-        <div className="flex flex-row justify-between items-start mb-8 border-b-2 border-gray-800 pb-4">
-          <div className="w-1/4">
-            <CMGLogo />
-          </div>
-          <div className="w-2/4 text-center">
-            <h1 className="text-2xl font-bold uppercase tracking-wider">
-              Method Statement
-            </h1>
-            <h2 className="text-xl mt-2 font-semibold">วิธีการปฏิบัติงาน</h2>
-            <h3 className="text-lg mt-2 text-gray-700">
-              {currentWMSDoc?.documentTitle}
-            </h3>
-          </div>
-          <div className="w-1/4 text-right">
-            <span className="text-sm text-gray-600 font-semibold">
-              FM-SHE-013-00
-            </span>
-          </div>
-        </div>
-
-        <table className="w-full text-sm border-collapse border border-gray-400 mb-8">
+        {/* ตาราง HTML จริง — เบราว์เซอร์ซ้ำ <thead> ทุกหน้าตอนพิมพ์ (div + display:table มักไม่ซ้ำ) */}
+        <table className="wms-print-outer-table w-full border-collapse table-fixed">
+          <thead>
+            <tr>
+              <th scope="colgroup" className="wms-print-outer-th p-0 align-top text-left font-normal border-0">
+        <table className="wms-export-title-table w-full border-collapse mb-3" role="presentation">
           <tbody>
             <tr>
-              <th className="border border-gray-400 p-2 bg-gray-100 w-1/4 text-left">
-                Project.
-              </th>
-              <td className="border border-gray-400 p-2 text-center font-semibold text-blue-800">
-                {currentWMSDoc?.project}
+              <td style={{ width: "25%", verticalAlign: "top" }}>
+                <CMGLogo />
               </td>
-              <th className="border border-gray-400 p-2 bg-gray-100 w-1/4 text-left">
-                Issue Date
-              </th>
-              <td className="border border-gray-400 p-2 text-center">
-                {currentWMSDoc?.issueDate}
+              <td style={{ width: "50%", textAlign: "center", verticalAlign: "top" }}>
+                <h1 className="text-[1.4em] font-bold uppercase tracking-wide leading-tight">
+                  Method Statement
+                </h1>
+                <h2 className="text-[1.2em] mt-1 font-semibold leading-tight">วิธีการปฏิบัติงาน</h2>
+                <h3 className="text-[1.08em] mt-1 text-gray-700 leading-snug">
+                  {currentWMSDoc?.documentTitle}
+                </h3>
               </td>
-            </tr>
-            <tr>
-              <th className="border border-gray-400 p-2 bg-gray-100 w-1/4 text-left">
-                Rev.
-              </th>
-              <td className="border border-gray-400 p-2 text-center">
-                {currentWMSDoc?.rev}
-              </td>
-              <th className="border border-gray-400 p-2 bg-gray-100 text-left">
-                Description
-              </th>
-              <td className="border border-gray-400 p-2 text-center">
-                {currentWMSDoc?.description}
-              </td>
-            </tr>
-            <tr>
-              <th className="border border-gray-400 p-2 bg-gray-100 text-left">
-                Prepared by
-              </th>
-              <td className="border border-gray-400 p-2 text-center">
-                {currentWMSDoc?.preparedBy}
-              </td>
-              <th className="border border-gray-400 p-2 bg-gray-100 text-left">
-                Approved by
-              </th>
-              <td className="border border-gray-400 p-2 text-center">
-                {currentWMSDoc?.approvedBy}
+              <td style={{ width: "25%", textAlign: "right", verticalAlign: "top" }}>
+                <span className="wms-fm-code text-[0.95em] text-gray-600 font-semibold">
+                  FM-SHE-013-00
+                </span>
               </td>
             </tr>
           </tbody>
         </table>
 
-        <div className="space-y-6 text-sm text-gray-900 leading-relaxed">
+        <table className="wms-export-meta-table w-full border-collapse border border-gray-400 mb-0 print:mb-0">
+          <tbody>
+            <tr>
+              <th className="border border-gray-400 py-1 px-2 bg-gray-100 w-1/4 text-left align-middle">
+                Project.
+              </th>
+              <td className="wms-proj-val border border-gray-400 py-1 px-2 text-center font-semibold text-blue-800 align-middle">
+                {currentWMSDoc?.project}
+              </td>
+              <th className="border border-gray-400 py-1 px-2 bg-gray-100 w-1/4 text-left align-middle">
+                Issue Date
+              </th>
+              <td className="border border-gray-400 py-1 px-2 text-center align-middle">
+                {currentWMSDoc?.issueDate}
+              </td>
+            </tr>
+            <tr>
+              <th className="border border-gray-400 py-1 px-2 bg-gray-100 w-1/4 text-left align-middle">
+                Rev.
+              </th>
+              <td className="border border-gray-400 py-1 px-2 text-center align-middle">
+                {currentWMSDoc?.rev}
+              </td>
+              <th className="border border-gray-400 py-1 px-2 bg-gray-100 text-left align-middle">
+                Description
+              </th>
+              <td className="border border-gray-400 py-1 px-2 text-center align-middle">
+                {currentWMSDoc?.description}
+              </td>
+            </tr>
+            <tr>
+              <th className="border border-gray-400 py-1 px-2 bg-gray-100 text-left align-middle">
+                Prepared by
+              </th>
+              <td className="border border-gray-400 py-1 px-2 text-center align-middle">
+                {currentWMSDoc?.preparedBy}
+              </td>
+              <th className="border border-gray-400 py-1 px-2 bg-gray-100 text-left align-middle">
+                Approved by
+              </th>
+              <td className="border border-gray-400 py-1 px-2 text-center align-middle">
+                {currentWMSDoc?.approvedBy}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td className="wms-print-outer-td p-0 align-top border-0">
+        <div className="wms-export-sections space-y-2 text-gray-900 leading-snug">
           <div>
-            <div className="font-bold bg-gray-100 p-2 uppercase">
+            <div className="wms-export-heading font-bold bg-gray-100 py-1 px-2 uppercase text-[1.06em] leading-tight">
               1. SCOPE / ขอบข่ายของงาน
             </div>
             <div
-              className="mt-3 ml-4 whitespace-pre-wrap content"
+              className="wms-export-body mt-1 ml-3 whitespace-pre-wrap content"
               dangerouslySetInnerHTML={{ __html: currentWMSDoc?.scope || "-" }}
             />
           </div>
 
           <div>
-            <div className="font-bold bg-gray-100 p-2 uppercase">
+            <div className="wms-export-heading font-bold bg-gray-100 py-1 px-2 uppercase text-[1.06em] leading-tight">
               2. DEFINITION / คำนิยาม
             </div>
             <div
-              className="mt-3 ml-4 whitespace-pre-wrap content"
+              className="wms-export-body mt-1 ml-3 whitespace-pre-wrap content"
               dangerouslySetInnerHTML={{
                 __html: currentWMSDoc?.definition || "-",
               }}
@@ -1587,11 +1772,11 @@ export default function App() {
           </div>
 
           <div>
-            <div className="font-bold bg-gray-100 p-2 uppercase">
+            <div className="wms-export-heading font-bold bg-gray-100 py-1 px-2 uppercase text-[1.06em] leading-tight">
               3. REFERENCE / เอกสารอ้างอิง
             </div>
             <div
-              className="mt-3 ml-4 whitespace-pre-wrap content"
+              className="wms-export-body mt-1 ml-3 whitespace-pre-wrap content"
               dangerouslySetInnerHTML={{
                 __html: currentWMSDoc?.reference || "-",
               }}
@@ -1599,22 +1784,22 @@ export default function App() {
           </div>
 
           <div>
-            <div className="font-bold bg-gray-100 p-2 uppercase">
+            <div className="wms-export-heading font-bold bg-gray-100 py-1 px-2 uppercase text-[1.06em] leading-tight">
               4. EQUIPMENT AND PERSONNEL / เครื่องมืออุปกรณ์ และบุคลากร
             </div>
-            <div className="mt-3 ml-4">
-              <div className="font-semibold mb-2">
+            <div className="mt-1 ml-3">
+              <div className="wms-export-sub font-semibold mb-0.5 text-[1.03em] leading-tight">
                 4.1 EQUIPMENT / เครื่องมืออุปกรณ์ที่นำมาใช้ในงาน
               </div>
               <div
-                className="mb-4 whitespace-pre-wrap content pl-4"
+                className="wms-export-body mb-2 whitespace-pre-wrap content pl-3"
                 dangerouslySetInnerHTML={{
                   __html: currentWMSDoc?.equipment || "-",
                 }}
               />
-              <div className="font-semibold mb-2">4.2 PERSONNEL / บุคลากร</div>
+              <div className="wms-export-sub font-semibold mb-0.5 text-[1.03em] leading-tight">4.2 PERSONNEL / บุคลากร</div>
               <div
-                className="whitespace-pre-wrap content pl-4"
+                className="wms-export-body whitespace-pre-wrap content pl-3"
                 dangerouslySetInnerHTML={{
                   __html: currentWMSDoc?.personnel || "-",
                 }}
@@ -1623,24 +1808,24 @@ export default function App() {
           </div>
 
           <div>
-            <div className="font-bold bg-gray-100 p-2 uppercase">
+            <div className="wms-export-heading font-bold bg-gray-100 py-1 px-2 uppercase text-[1.06em] leading-tight">
               5. ORGANIZATION / แผนผังองค์กร
             </div>
-            <div className="mt-3 ml-4">
-              <div className="font-semibold mb-2">
+            <div className="mt-1 ml-3">
+              <div className="wms-export-sub font-semibold mb-0.5 text-[1.03em] leading-tight">
                 5.1 ORGANIZATION CHART / แผนผังองค์กร
               </div>
               <div
-                className="mb-4 whitespace-pre-wrap content pl-4"
+                className="wms-export-body mb-2 whitespace-pre-wrap content pl-3"
                 dangerouslySetInnerHTML={{
                   __html: currentWMSDoc?.orgChart || "-",
                 }}
               />
-              <div className="font-semibold mb-2">
+              <div className="wms-export-sub font-semibold mb-0.5 text-[1.03em] leading-tight">
                 5.2 RESPONSIBILITY / หน้าที่และความรับผิดชอบ
               </div>
               <div
-                className="whitespace-pre-wrap content pl-4"
+                className="wms-export-body whitespace-pre-wrap content pl-3"
                 dangerouslySetInnerHTML={{
                   __html: currentWMSDoc?.responsibility || "-",
                 }}
@@ -1649,33 +1834,33 @@ export default function App() {
           </div>
 
           <div>
-            <div className="font-bold bg-gray-100 p-2 uppercase">
+            <div className="wms-export-heading font-bold bg-gray-100 py-1 px-2 uppercase text-[1.06em] leading-tight">
               6. PROCEDURE DESCRIPTION / วิธีการดำเนินการ
             </div>
-            <div className="mt-3 ml-4">
-              <div className="font-semibold mb-2">
+            <div className="mt-1 ml-3">
+              <div className="wms-export-sub font-semibold mb-0.5 text-[1.03em] leading-tight">
                 6.1 PREPARATION / การเตรียมการก่อนการเริ่มงาน
               </div>
               <div
-                className="mb-4 whitespace-pre-wrap content pl-4"
+                className="wms-export-body mb-2 whitespace-pre-wrap content pl-3"
                 dangerouslySetInnerHTML={{
                   __html: currentWMSDoc?.preparation || "-",
                 }}
               />
-              <div className="font-semibold mb-2">
+              <div className="wms-export-sub font-semibold mb-0.5 text-[1.03em] leading-tight">
                 6.2 PROCEDURE / ขั้นตอนการปฏิบัติงาน
               </div>
               <div
-                className="mb-4 whitespace-pre-wrap content pl-4"
+                className="wms-export-body mb-2 whitespace-pre-wrap content pl-3"
                 dangerouslySetInnerHTML={{
                   __html: currentWMSDoc?.procedure || "-",
                 }}
               />
-              <div className="font-semibold mb-2">
+              <div className="wms-export-sub font-semibold mb-0.5 text-[1.03em] leading-tight">
                 6.3 FINISH OF WORK / เมื่อเสร็จสิ้นการปฏิบัติงาน
               </div>
               <div
-                className="whitespace-pre-wrap content pl-4"
+                className="wms-export-body whitespace-pre-wrap content pl-3"
                 dangerouslySetInnerHTML={{
                   __html: currentWMSDoc?.finishWork || "-",
                 }}
@@ -1684,11 +1869,11 @@ export default function App() {
           </div>
 
           <div>
-            <div className="font-bold bg-gray-100 p-2 uppercase">
+            <div className="wms-export-heading font-bold bg-gray-100 py-1 px-2 uppercase text-[1.06em] leading-tight">
               7. INSPECTION AND TESTING / วิธีการตรวจสอบ และการทดสอบ
             </div>
             <div
-              className="mt-3 ml-4 whitespace-pre-wrap content"
+              className="wms-export-body mt-1 ml-3 whitespace-pre-wrap content"
               dangerouslySetInnerHTML={{
                 __html: currentWMSDoc?.inspectTesting || "-",
               }}
@@ -1696,27 +1881,31 @@ export default function App() {
           </div>
 
           <div>
-            <div className="font-bold bg-gray-100 p-2 uppercase">
+            <div className="wms-export-heading font-bold bg-gray-100 py-1 px-2 uppercase text-[1.06em] leading-tight">
               8. JOB SAFETY ANALYSIS / การวิเคราะห์งานเพื่อความปลอดภัย
             </div>
             <div
-              className="mt-3 ml-4 whitespace-pre-wrap content"
+              className="wms-export-body mt-1 ml-3 whitespace-pre-wrap content"
               dangerouslySetInnerHTML={{ __html: currentWMSDoc?.jsa || "-" }}
             />
           </div>
 
           <div>
-            <div className="font-bold bg-gray-100 p-2 uppercase">
+            <div className="wms-export-heading font-bold bg-gray-100 py-1 px-2 uppercase text-[1.06em] leading-tight">
               9. DOCUMENTED INFORMATION / เอกสารแนบ
             </div>
             <div
-              className="mt-3 ml-4 whitespace-pre-wrap content"
+              className="wms-export-body mt-1 ml-3 whitespace-pre-wrap content"
               dangerouslySetInnerHTML={{
                 __html: currentWMSDoc?.documentedInfo || "-",
               }}
             />
           </div>
         </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
         </div>{/* end right column */}
       </div>{/* end two-column flex */}
@@ -1973,26 +2162,30 @@ export default function App() {
       {/* Printable Area - Designed for Landscape A4 */}
       <div
         id="printable-jsa"
-        className="bg-white shadow-md mx-auto print:shadow-none"
-        style={{ maxWidth: "297mm", minHeight: "210mm", padding: "15mm" }}
+        className="document-export-preview jsa-print-document bg-white shadow-md mx-auto print:shadow-none min-h-[210mm] print:min-h-0 p-3 sm:p-4 print:p-0"
+        style={{ maxWidth: "297mm" }}
       >
+        <table className="jsa-print-outer-table w-full border-collapse table-fixed">
+          <thead>
+            <tr>
+              <th scope="colgroup" className="jsa-print-outer-th p-0 align-top text-left font-normal border-0">
         {/* JSA Header Section */}
-        <div className="jsa-header bg-[#fae6d1] border border-black mb-4 p-4 rounded-sm text-sm">
-          <div className="flex justify-between items-center mb-4 border-b border-black pb-2">
+        <div className="jsa-header bg-[#fae6d1] border border-black mb-0 p-2 rounded-sm leading-snug print:rounded-none">
+          <div className="flex justify-between items-center mb-2 border-b border-black pb-1.5">
             <div className="w-1/4">
               <CMGLogo />
             </div>
             <div className="w-2/4 text-center">
-              <h1 className="text-lg font-bold">
+              <h1 className="text-[1.22em] font-bold leading-tight">
                 JOB SAFETY ANALYSIS / การวิเคราะห์งานเพื่อความปลอดภัย
               </h1>
             </div>
-            <div className="w-1/4 text-right text-xs font-semibold">
+            <div className="w-1/4 text-right text-[0.92em] font-semibold">
               FM-SHE-005/00
             </div>
           </div>
 
-          <div className="grid grid-cols-12 gap-x-4 gap-y-2">
+          <div className="grid grid-cols-12 gap-x-3 gap-y-1">
             <div className="col-span-5 flex">
               <span className="w-40 font-semibold">
                 Client/เจ้าของโครงการ :
@@ -2052,58 +2245,63 @@ export default function App() {
             <div className="col-span-3"></div>
           </div>
         </div>
-
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td className="jsa-print-outer-td p-0 align-top border-0 pt-2 print:pt-1">
         {/* JSA Table Section */}
-        <table className="w-full border-collapse border border-black text-sm">
+        <table className="w-full border-collapse border border-black leading-snug">
           <thead>
             <tr className="bg-[#fae6d1]">
-              <th className="border border-black p-2 w-12 text-center">
+              <th className="border border-black py-1 px-1.5 w-12 text-center">
                 ลำดับที่
                 <br />
-                <span className="text-xs font-normal">No.</span>
+                <span className="text-[0.78em] font-normal">No.</span>
               </th>
-              <th className="border border-black p-2 w-[25%] text-center">
+              <th className="border border-black py-1 px-1.5 w-[25%] text-center">
                 ขั้นตอนการปฏิบัติงาน
                 <br />
-                <span className="text-xs font-normal">Job step</span>
+                <span className="text-[0.78em] font-normal">Job step</span>
               </th>
-              <th className="border border-black p-2 w-[30%] text-center">
+              <th className="border border-black py-1 px-1.5 w-[30%] text-center">
                 อันตรายที่อาจเกิดขึ้น
                 <br />
-                <span className="text-xs font-normal">
+                <span className="text-[0.78em] font-normal">
                   Hazard Identification
                 </span>
               </th>
-              <th className="border border-black p-2 w-[30%] text-center">
+              <th className="border border-black py-1 px-1.5 w-[30%] text-center">
                 มาตรการดำเนินการเพื่อแก้ไขและควบคุม
                 <br />
-                <span className="text-xs font-normal">
+                <span className="text-[0.78em] font-normal">
                   Control/Reduce measure activities
                 </span>
               </th>
-              <th className="border border-black p-2 w-32 text-center">
+              <th className="border border-black py-1 px-1.5 w-32 text-center">
                 ผู้รับผิดชอบ
                 <br />
-                <span className="text-xs font-normal">Responded by</span>
+                <span className="text-[0.78em] font-normal">Responded by</span>
               </th>
             </tr>
           </thead>
           <tbody className="bg-[#e6f2e6]">
             {currentJSADoc?.items.map((item: any, index: number) => (
               <tr key={index} className="border border-black dotted-border">
-                <td className="border-r border-l border-black p-2 text-center align-top border-b border-dotted">
+                <td className="border-r border-l border-black py-1 px-1.5 text-center align-top border-b border-dotted">
                   {index + 1}
                 </td>
-                <td className="border-r border-black p-2 align-top whitespace-pre-wrap border-b border-dotted">
+                <td className="border-r border-black py-1 px-1.5 align-top whitespace-pre-wrap border-b border-dotted">
                   {item.step}
                 </td>
-                <td className="border-r border-black p-2 align-top whitespace-pre-wrap border-b border-dotted">
+                <td className="border-r border-black py-1 px-1.5 align-top whitespace-pre-wrap border-b border-dotted">
                   {item.hazard}
                 </td>
-                <td className="border-r border-black p-2 align-top whitespace-pre-wrap border-b border-dotted">
+                <td className="border-r border-black py-1 px-1.5 align-top whitespace-pre-wrap border-b border-dotted">
                   {item.control}
                 </td>
-                <td className="border-r border-black p-2 align-top text-center border-b border-dotted">
+                <td className="border-r border-black py-1 px-1.5 align-top text-center border-b border-dotted">
                   {item.responder}
                 </td>
               </tr>
@@ -2114,7 +2312,7 @@ export default function App() {
             }).map((_, i) => (
               <tr
                 key={`empty-${i}`}
-                className="border border-black dotted-border h-10"
+                className="border border-black dotted-border h-7"
               >
                 <td className="border-r border-l border-black border-b border-dotted"></td>
                 <td className="border-r border-black border-b border-dotted"></td>
@@ -2125,13 +2323,17 @@ export default function App() {
             ))}
           </tbody>
         </table>
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </div>
   );
 
   // --- Main Layout ---
   return (
-    <div className="flex h-screen bg-gray-100 overflow-hidden font-sans">
+    <div className="flex h-screen bg-gray-100 overflow-hidden font-sans print:h-auto print:min-h-0 print:overflow-visible">
       {/* Sidebar - Hidden on print */}
       <div
         className={`${
@@ -2197,9 +2399,9 @@ export default function App() {
           >
             <Briefcase className="w-5 h-5 flex-shrink-0" />
             {!sidebarCollapsed && (
-              <div className="text-left ml-3">
-                <div className="font-semibold leading-tight">ข้อมูลโครงการ</div>
-                <div className="text-[10px] opacity-70">Projects</div>
+              <div className="text-left ml-3 min-w-0">
+                <div className="font-semibold text-sm leading-tight">ข้อมูลโครงการ</div>
+                <div className="text-[11px] opacity-70 leading-tight mt-0.5">Projects</div>
               </div>
             )}
           </button>
@@ -2220,9 +2422,9 @@ export default function App() {
           >
             <FileText className="w-5 h-5 flex-shrink-0" />
             {!sidebarCollapsed && (
-              <div className="text-left ml-3">
-                <div className="font-semibold leading-tight">Method Statement</div>
-                <div className="text-[10px] opacity-70">WMS Document</div>
+              <div className="text-left ml-3 min-w-0">
+                <div className="font-semibold text-sm leading-tight">Method Statement</div>
+                <div className="text-[11px] opacity-70 leading-tight mt-0.5">WMS Document</div>
               </div>
             )}
           </button>
@@ -2243,9 +2445,9 @@ export default function App() {
           >
             <ShieldAlert className="w-5 h-5 flex-shrink-0" />
             {!sidebarCollapsed && (
-              <div className="text-left ml-3">
-                <div className="font-semibold leading-tight">Job Safety Analysis</div>
-                <div className="text-[10px] opacity-70">JSA Form</div>
+              <div className="text-left ml-3 min-w-0">
+                <div className="font-semibold text-sm leading-tight">Job Safety Analysis</div>
+                <div className="text-[11px] opacity-70 leading-tight mt-0.5">JSA Form</div>
               </div>
             )}
           </button>
@@ -2279,8 +2481,8 @@ export default function App() {
               {!sidebarCollapsed && (
                 <div className="flex-1 flex items-center justify-between ml-3 min-w-0">
                   <div className="text-left min-w-0">
-                    <div className="font-semibold leading-tight">จัดการผู้ใช้งาน</div>
-                    <div className="text-[10px] opacity-70">User Management</div>
+                    <div className="font-semibold text-sm leading-tight">จัดการผู้ใช้งาน</div>
+                    <div className="text-[11px] opacity-70 leading-tight mt-0.5">User Management</div>
                   </div>
                   {pendingUsersCount > 0 && (
                     <span className="flex-shrink-0 ml-2 min-w-[20px] h-5 px-1 bg-red-500 text-white text-xs font-bold rounded-full flex items-center justify-center">
@@ -2332,7 +2534,7 @@ export default function App() {
       </div>
 
       {/* Main Content Area */}
-      <div className="flex-1 overflow-y-auto print:overflow-visible relative flex flex-col">
+      <div className="flex-1 overflow-y-auto print:overflow-visible print:h-auto print:min-h-0 relative flex flex-col">
         {/* แถบมุมขวาบน: โปรไฟล์ + Dropdown (อัพเดทโปรไฟล์ / Logout) */}
         <div className="flex-shrink-0 sticky top-0 z-20 bg-white/95 backdrop-blur border-b border-gray-200 print:hidden">
           <div className="flex items-center justify-end h-14 px-4 md:px-6">
@@ -2381,9 +2583,9 @@ export default function App() {
 
         {/* Dynamic List Views based on activeTab */}
         {view === "list" && (
-          <div className="p-6 md:p-8 print:hidden max-w-7xl mx-auto">
+          <div className="w-full max-w-screen-2xl 2xl:max-w-[90rem] mx-auto px-4 sm:px-6 lg:px-10 py-6 md:py-8 print:hidden text-[15px] sm:text-base leading-normal antialiased">
             {/* Header Card — layout เดียวกันทุกเมนู */}
-            <div className="flex flex-row justify-between items-center mb-6 bg-white p-6 rounded-xl shadow-sm border border-gray-100 min-h-[88px]">
+            <div className="flex flex-row justify-between items-center gap-4 mb-5 bg-white p-5 sm:p-6 rounded-xl shadow-sm border border-gray-100 min-h-[88px]">
               {/* ซ้าย: ไอคอน + ชื่อเมนู */}
               <div className="flex items-center">
                 <div
@@ -2408,7 +2610,7 @@ export default function App() {
                   )}
                 </div>
                 <div>
-                  <h1 className="text-2xl font-bold text-gray-800">
+                  <h1 className="text-xl sm:text-2xl font-bold text-gray-800 leading-snug">
                     {activeTab === "wms"
                       ? "Method Statement (WMS)"
                       : activeTab === "jsa"
@@ -2417,7 +2619,7 @@ export default function App() {
                       ? "จัดการผู้ใช้งาน"
                       : "ข้อมูลโครงการ (Projects)"}
                   </h1>
-                  <p className="text-gray-500 text-sm mt-1">
+                  <p className="text-gray-500 text-sm mt-1 leading-snug max-w-2xl">
                     {activeTab === "wms"
                       ? "ระบบจัดการรายการเอกสารวิธีการปฏิบัติงาน"
                       : activeTab === "jsa"
@@ -2455,7 +2657,7 @@ export default function App() {
                       if (activeTab === "project") setProjectFormData(initialProjectFormState);
                       setView("form");
                     }}
-                    className={`flex items-center px-5 py-2.5 text-white rounded-lg shadow-sm transition-all font-medium ${
+                    className={`flex items-center px-5 py-2.5 text-white rounded-lg shadow-sm transition-all text-sm font-semibold ${
                       activeTab === "wms"
                         ? "bg-blue-600 hover:bg-blue-700"
                         : activeTab === "jsa"
@@ -2469,17 +2671,45 @@ export default function App() {
               </div>
             </div>
 
+            {activeTab === "users" && (
+              <div className="mb-4 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setUserMgmtSubTab("list")}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    userMgmtSubTab === "list"
+                      ? "bg-violet-600 text-white shadow-sm"
+                      : "bg-white text-gray-700 border border-gray-200 hover:bg-gray-50"
+                  }`}
+                >
+                  รายการผู้ใช้
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setUserMgmtSubTab("roleGuide")}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors inline-flex items-center gap-2 ${
+                    userMgmtSubTab === "roleGuide"
+                      ? "bg-violet-600 text-white shadow-sm"
+                      : "bg-white text-gray-700 border border-gray-200 hover:bg-gray-50"
+                  }`}
+                >
+                  <Info className="w-4 h-4 flex-shrink-0" />
+                  คำอธิบายบทบาท (Role)
+                </button>
+              </div>
+            )}
+
             {/* Filter Section (Only for WMS/JSA) */}
             {activeTab !== "project" && activeTab !== "users" && (
-              <div className="mb-4 flex items-center bg-white p-3 rounded-lg shadow-sm border border-gray-200 w-fit">
-                <Filter className="w-5 h-5 text-gray-400 mr-2" />
-                <span className="font-medium text-gray-700 mr-3">
+              <div className="mb-4 flex flex-wrap items-center gap-2 bg-white px-3 py-2.5 rounded-lg shadow-sm border border-gray-200 w-full sm:w-fit sm:max-w-full">
+                <Filter className="w-5 h-5 text-gray-400 flex-shrink-0" />
+                <span className="font-medium text-gray-700 text-sm">
                   ตัวกรองโครงการ :
                 </span>
                 <select
                   value={selectedProjectFilter}
                   onChange={(e) => setSelectedProjectFilter(e.target.value)}
-                  className="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2 outline-none min-w-[200px]"
+                  className="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block py-2 px-3 outline-none min-w-[200px] flex-1 sm:flex-none"
                 >
                   <option value="All">แสดงทั้งหมด (All Projects)</option>
                   {allProjectNames.map((p, i) => (
@@ -2498,24 +2728,73 @@ export default function App() {
               {activeTab === "users" &&
                 (adminUsersLoading ? (
                   <div className="p-8 text-center text-gray-500">กำลังโหลด...</div>
+                ) : userMgmtSubTab === "roleGuide" ? (
+                  <div className="p-6 md:p-8">
+                    <p className="text-sm text-gray-600 mb-5 leading-relaxed">
+                      สรุปสิทธิ์ตาม Role แต่ละแบบ: <strong>เมนูใน Sidebar</strong> คือเมนูที่เห็นและเข้าได้ด้านซ้าย
+                      และการกระทำใน <strong>ข้อมูลโครงการ / Method Statement / JSA</strong> คือปุ่มที่ใช้กับรายการในแต่ละเมนูนั้น
+                      หาก Role มีเมนูจัดการผู้ใช้งาน จะมีคำอธิบายเพิ่มด้านล่างการ์ด ผู้ใช้ที่มีหลาย Role ระบบจะรวมสิทธิ์จากทุก Role
+                    </p>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      {USER_ROLES.map((role) => {
+                        const { sidebarMenus, listActions, userMgmtDescription } = getRoleGuide(role);
+                        return (
+                          <div
+                            key={role}
+                            className="border border-gray-200 rounded-xl p-5 bg-gradient-to-br from-violet-50/80 to-white"
+                          >
+                            <h3 className="text-lg font-bold text-violet-900 mb-3">{role}</h3>
+                            <div className="mb-4">
+                              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                                เมนูใน Sidebar
+                              </div>
+                              <ul className="list-disc list-inside text-sm text-gray-800 space-y-1">
+                                {sidebarMenus.map((label) => (
+                                  <li key={`${role}-m-${label}`}>{label}</li>
+                                ))}
+                              </ul>
+                            </div>
+                            <div className="mb-4">
+                              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                                ในรายการ โครงการ / WMS / JSA
+                              </div>
+                              <ul className="list-disc list-inside text-sm text-gray-800 space-y-1">
+                                {listActions.map((label) => (
+                                  <li key={`${role}-a-${label}`}>{label}</li>
+                                ))}
+                              </ul>
+                            </div>
+                            {userMgmtDescription && (
+                              <div>
+                                <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                                  จัดการผู้ใช้งาน
+                                </div>
+                                <p className="text-sm text-gray-800 leading-relaxed">{userMgmtDescription}</p>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
                 ) : (
                   <>
-                    <table className="w-full text-left text-sm">
-                      <thead className="bg-gray-50 text-gray-600 border-b">
+                    <table className="list-data-table w-full text-left">
+                      <thead className="bg-gray-50 text-gray-700 border-b">
                         <tr>
-                          <th className="px-6 py-3 font-semibold w-14">รูป</th>
-                          <th className="px-6 py-3 font-semibold">อีเมล</th>
-                          <th className="px-6 py-3 font-semibold">ชื่อ-นามสกุล</th>
-                          <th className="px-6 py-3 font-semibold">ตำแหน่ง</th>
-                          <th className="px-6 py-3 font-semibold">บทบาท</th>
-                          <th className="px-6 py-3 font-semibold">สถานะ</th>
-                          <th className="px-6 py-3 font-semibold w-24 text-right">จัดการ</th>
+                          <th className="font-semibold w-14">รูป</th>
+                          <th className="font-semibold">อีเมล</th>
+                          <th className="font-semibold">ชื่อ-นามสกุล</th>
+                          <th className="font-semibold">ตำแหน่ง</th>
+                          <th className="font-semibold">บทบาท</th>
+                          <th className="font-semibold">สถานะ</th>
+                          <th className="font-semibold w-28 text-right">จัดการ</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-100">
                         {adminUsers.map((u) => (
                           <tr key={u.id} className="hover:bg-gray-50">
-                            <td className="px-6 py-4">
+                            <td>
                               <div className="w-10 h-10 rounded-full overflow-hidden bg-gray-200 flex items-center justify-center flex-shrink-0">
                                 {u.photoURL ? (
                                   <img src={u.photoURL} alt="" className="w-full h-full object-cover" />
@@ -2524,10 +2803,10 @@ export default function App() {
                                 )}
                               </div>
                             </td>
-                            <td className="px-6 py-4 text-gray-700">{u.email}</td>
-                            <td className="px-6 py-4 font-medium text-gray-800">{u.firstName} {u.lastName}</td>
-                            <td className="px-6 py-4 text-gray-600">{u.position || "-"}</td>
-                            <td className="px-6 py-4">
+                            <td className="text-gray-700">{u.email}</td>
+                            <td className="font-medium text-gray-800">{u.firstName} {u.lastName}</td>
+                            <td className="text-gray-600">{u.position || "-"}</td>
+                            <td>
                               <div className="flex flex-wrap gap-1">
                                 {Array.isArray(u.role) && u.role.length > 0
                                   ? u.role.map((r) => (
@@ -2536,7 +2815,7 @@ export default function App() {
                                   : <span className="text-gray-400">-</span>}
                               </div>
                             </td>
-                            <td className="px-6 py-4">
+                            <td>
                               <span
                                 className={`px-2 py-1 rounded text-xs font-medium ${
                                   u.status === "approved"
@@ -2549,7 +2828,7 @@ export default function App() {
                                 {u.status === "approved" ? "อนุมัติแล้ว" : u.status === "pending" ? "รออนุมัติ" : "ถูกปฏิเสธ"}
                               </span>
                             </td>
-                            <td className="px-6 py-4 text-right">
+                            <td className="text-right">
                               <button
                                 onClick={() => openEditUserModal(u)}
                                 className="inline-flex items-center gap-1 px-3 py-1.5 bg-violet-50 text-violet-700 hover:bg-violet-100 rounded-md font-medium transition-colors text-xs"
@@ -2568,46 +2847,46 @@ export default function App() {
               {/* Project Table */}
               {activeTab === "project" &&
                 (projects.length === 0 ? (
-                  <div className="p-16 text-center text-gray-400">
+                  <div className="p-16 text-center text-gray-500">
                     <div className="flex justify-center mb-4 opacity-50">
                       <Briefcase size={48} />
                     </div>
-                    <p>ยังไม่มีข้อมูลโครงการในระบบ</p>
+                    <p className="text-base leading-relaxed">ยังไม่มีข้อมูลโครงการในระบบ</p>
                   </div>
                 ) : (
-                  <table className="w-full text-left text-sm">
-                    <thead className="bg-gray-50 text-gray-600 border-b">
+                  <table className="list-data-table w-full text-left">
+                    <thead className="bg-gray-50 text-gray-700 border-b">
                       <tr>
-                        <th className="px-6 py-4 font-semibold w-32">
+                        <th className="font-semibold w-36">
                           Project No.
                         </th>
-                        <th className="px-6 py-4 font-semibold">
+                        <th className="font-semibold">
                           Project Name
                         </th>
-                        <th className="px-6 py-4 font-semibold">Location</th>
-                        <th className="px-6 py-4 font-semibold">Client</th>
+                        <th className="font-semibold">Location</th>
+                        <th className="font-semibold">Client</th>
                         {canDelete && (
-                          <th className="px-6 py-4 font-semibold w-24 text-right">จัดการ</th>
+                          <th className="font-semibold w-28 text-right">จัดการ</th>
                         )}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
                       {projects.map((proj) => (
                         <tr key={proj.id} className="hover:bg-gray-50">
-                          <td className="px-6 py-4 font-medium text-emerald-700">
+                          <td className="font-medium text-emerald-700">
                             {proj.projectNo || "-"}
                           </td>
-                          <td className="px-6 py-4 font-medium text-gray-800">
+                          <td className="font-medium text-gray-800">
                             {proj.projectName || "(ไม่มีชื่อโครงการ)"}
                           </td>
-                          <td className="px-6 py-4 text-gray-500">
+                          <td className="text-gray-600">
                             {proj.location || "-"}
                           </td>
-                          <td className="px-6 py-4 text-gray-500">
+                          <td className="text-gray-600">
                             {proj.clientName || "-"}
                           </td>
                           {canDelete && (
-                          <td className="px-6 py-4 text-right">
+                          <td className="text-right">
                             <button
                               onClick={() => deleteProject(proj.id)}
                               className="inline-flex items-center px-3 py-1.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-md font-medium transition-colors"
@@ -2625,7 +2904,7 @@ export default function App() {
               {/* WMS / JSA Table */}
               {(activeTab === "wms" || activeTab === "jsa") &&
                 (displayDocuments.length === 0 ? (
-                  <div className="p-16 text-center text-gray-400">
+                  <div className="p-16 text-center text-gray-500">
                     <div className="flex justify-center mb-4 opacity-50">
                       {activeTab === "wms" ? (
                         <FileText size={48} />
@@ -2633,30 +2912,30 @@ export default function App() {
                         <ShieldAlert size={48} />
                       )}
                     </div>
-                    <p>
+                    <p className="text-base leading-relaxed max-w-md mx-auto">
                       ยังไม่มีรายการเอกสารในหมวดหมู่นี้ หรือ โครงการที่คุณเลือก
                     </p>
                   </div>
                 ) : (
-                  <table className="w-full text-left text-sm">
-                    <thead className="bg-gray-50 text-gray-600 border-b">
+                  <table className="list-data-table w-full text-left">
+                    <thead className="bg-gray-50 text-gray-700 border-b">
                       <tr>
-                        <th className="px-6 py-4 font-semibold w-48">
+                        <th className="font-semibold w-52">
                           โครงการ (Project)
                         </th>
-                        <th className="px-6 py-4 font-semibold">
+                        <th className="font-semibold">
                           ชื่องาน (Job Title)
                         </th>
-                        <th className="px-6 py-4 font-semibold w-20 text-center">
+                        <th className="font-semibold w-24 text-center">
                           Rev.
                         </th>
-                        <th className="px-6 py-4 font-semibold w-32">
+                        <th className="font-semibold w-36">
                           วันที่ (Date)
                         </th>
-                        <th className="px-6 py-4 font-semibold w-32">
+                        <th className="font-semibold w-36">
                           ผู้จัดทำ
                         </th>
-                        <th className="px-6 py-4 font-semibold w-36 text-right">
+                        <th className="font-semibold w-40 text-right">
                           จัดการ
                         </th>
                       </tr>
@@ -2664,24 +2943,24 @@ export default function App() {
                     <tbody className="divide-y divide-gray-100">
                       {displayDocuments.map((doc) => (
                         <tr key={doc.id} className="hover:bg-gray-50">
-                          <td className="px-6 py-4 font-semibold text-blue-700">
+                          <td className="font-semibold text-blue-700">
                             {doc.project || "-"}
                           </td>
-                          <td className="px-6 py-4 font-medium text-gray-800">
+                          <td className="font-medium text-gray-800">
                             {activeTab === "wms"
                               ? doc.documentTitle
                               : doc.jobTitle || "(ไม่มีชื่อ)"}
                           </td>
-                          <td className="px-6 py-4 text-center text-gray-500">
+                          <td className="text-center text-gray-600">
                             {doc.rev}
                           </td>
-                          <td className="px-6 py-4 text-gray-500">
+                          <td className="text-gray-600">
                             {activeTab === "wms" ? doc.issueDate : doc.date}
                           </td>
-                          <td className="px-6 py-4 text-gray-500">
+                          <td className="text-gray-600">
                             {doc.preparedBy || "-"}
                           </td>
-                          <td className="px-6 py-4 text-right">
+                          <td className="text-right">
                             <div className="flex items-center justify-end gap-2">
                               {/* ปุ่มเปิดดู: ทุก role เห็น */}
                               <button
@@ -2691,7 +2970,7 @@ export default function App() {
                                     : setCurrentJSADoc(doc);
                                   setView("detail");
                                 }}
-                                className={`inline-flex items-center px-3 py-1.5 rounded-md font-medium transition-colors ${
+                                className={`inline-flex items-center px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
                                   activeTab === "wms"
                                     ? "bg-blue-50 text-blue-600 hover:bg-blue-100"
                                     : "bg-orange-50 text-orange-600 hover:bg-orange-100"
@@ -2711,7 +2990,7 @@ export default function App() {
                                     setView("form");
                                   }
                                 }}
-                                className="inline-flex items-center px-3 py-1.5 rounded-md font-medium transition-colors bg-yellow-50 text-yellow-700 hover:bg-yellow-100"
+                                className="inline-flex items-center px-3.5 py-2 rounded-md text-sm font-semibold transition-colors bg-yellow-50 text-yellow-700 hover:bg-yellow-100"
                               >
                                 <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5 mr-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                                 แก้ไข
@@ -2725,7 +3004,7 @@ export default function App() {
                                     ? deleteWMS(doc.id)
                                     : deleteJSA(doc.id)
                                 }
-                                className="inline-flex items-center px-3 py-1.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-md font-medium transition-colors"
+                                className="inline-flex items-center px-3 py-1.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-md text-sm font-medium transition-colors"
                               >
                                 <Trash2 className="w-4 h-4" />
                               </button>
