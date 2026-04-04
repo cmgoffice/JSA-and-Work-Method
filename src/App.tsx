@@ -520,6 +520,7 @@ export default function App() {
   const [editUserRoles, setEditUserRoles] = useState<UserRole[]>([]);
   const [editUserStatus, setEditUserStatus] = useState<UserStatus>("pending");
   const [editUserPosition, setEditUserPosition] = useState("");
+  const [editUserAssignedProjects, setEditUserAssignedProjects] = useState<string[]>([]);
   const [isSavingUser, setIsSavingUser] = useState(false);
 
   // ปิด dropdown โปรไฟล์เมื่อคลิกนอก
@@ -893,11 +894,20 @@ export default function App() {
     setEditUserRoles(Array.isArray(u.role) ? [...u.role] : []);
     setEditUserStatus(u.status);
     setEditUserPosition(u.position || "");
+    setEditUserAssignedProjects(Array.isArray(u.assignedProjects) ? [...u.assignedProjects] : []);
   };
 
   const toggleEditRole = (role: UserRole) => {
     setEditUserRoles((prev) =>
       prev.includes(role) ? prev.filter((r) => r !== role) : [...prev, role]
+    );
+  };
+
+  const toggleEditAssignedProject = (projectName: string) => {
+    setEditUserAssignedProjects((prev) =>
+      prev.includes(projectName)
+        ? prev.filter((name) => name !== projectName)
+        : [...prev, projectName]
     );
   };
 
@@ -915,13 +925,20 @@ export default function App() {
           role: editUserRoles,
           status: editUserStatus,
           position: editUserPosition,
+          assignedProjects: editUserAssignedProjects,
         },
         { merge: true }
       );
       setAdminUsers((prev) =>
         prev.map((u) =>
           u.id === editUserModal.id
-            ? { ...u, role: editUserRoles, status: editUserStatus, position: editUserPosition }
+            ? {
+                ...u,
+                role: editUserRoles,
+                status: editUserStatus,
+                position: editUserPosition,
+                assignedProjects: editUserAssignedProjects,
+              }
             : u
         )
       );
@@ -944,6 +961,10 @@ export default function App() {
   )
     .filter(Boolean)
     .sort();
+
+  const assignableProjectNames = Array.from(
+    new Set(projects.map((p) => p.projectName).filter(Boolean))
+  ).sort();
 
   const filteredWMS = wmsDocuments.filter(
     (d) =>
@@ -3099,6 +3120,36 @@ export default function App() {
                   <option value="pending">รออนุมัติ (Pending)</option>
                   <option value="rejected">ถูกปฏิเสธ (Rejected)</option>
                 </select>
+              </div>
+
+              {/* โครงการที่รับผิดชอบ */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-sm font-semibold text-gray-700">โครงการที่รับผิดชอบ (Projects)</label>
+                  <span className="text-xs text-gray-500">เลือกแล้ว {editUserAssignedProjects.length} โครงการ</span>
+                </div>
+                {assignableProjectNames.length === 0 ? (
+                  <p className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+                    ยังไม่มีโครงการในระบบสำหรับกำหนดให้ผู้ใช้งาน
+                  </p>
+                ) : (
+                  <div className="max-h-40 overflow-auto border border-gray-200 rounded-lg p-2 bg-gray-50 space-y-1.5">
+                    {assignableProjectNames.map((projectName) => (
+                      <label
+                        key={projectName}
+                        className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-white cursor-pointer"
+                      >
+                        <input
+                          type="checkbox"
+                          className="accent-violet-600 w-4 h-4"
+                          checked={editUserAssignedProjects.includes(projectName)}
+                          onChange={() => toggleEditAssignedProject(projectName)}
+                        />
+                        <span className="text-sm text-gray-700">{projectName}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* บทบาท */}
