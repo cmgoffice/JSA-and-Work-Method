@@ -1,6 +1,7 @@
 import { initializeApp, FirebaseApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore, Firestore, collection, doc, CollectionReference, DocumentReference } from "firebase/firestore";
+import { getStorage } from "firebase/storage";
 
 const firebaseConfig = {
   apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
@@ -27,6 +28,7 @@ try {
 }
 
 export const auth = getAuth(app);
+export const storage = getStorage(app);
 export { db };
 
 export function projectsRef(): CollectionReference {

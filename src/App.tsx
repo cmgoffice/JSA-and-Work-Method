@@ -36,6 +36,7 @@ import {
   onAuthStateChanged,
 } from "firebase/auth";
 import { setDoc, deleteDoc, onSnapshot, getDoc, query, where } from "firebase/firestore";
+import { getDownloadURL, ref as storageRef, uploadBytes } from "firebase/storage";
 
 import {
   auth,
@@ -48,6 +49,7 @@ import {
   wmsDoc,
   jsaDoc,
   metaDoc,
+  storage,
 } from "./firebase";
 import { getDocs } from "firebase/firestore";
 import { seedMockDataToFirestore } from "./seedData";
@@ -423,6 +425,7 @@ const initialWMSFormState = {
   id: "",
   project: "",
   documentTitle: "",
+  status: "Under Preparing",
   rev: "00",
   issueDate: new Date().toISOString().split("T")[0],
   description: "Initial Issue",
@@ -450,13 +453,23 @@ const initialJSAFormState = {
   client: "",
   project: "",
   jobTitle: "",
+  status: "Under Preparing",
   preparedBy: "",
   reviewedBy: "",
   approvedBy: "",
   date: new Date().toISOString().split("T")[0],
   rev: "00",
   items: [{ id: Date.now(), step: "", hazard: "", control: "", responder: "" }],
+  attachments: [] as {
+    name: string;
+    url: string;
+    path: string;
+    uploadedAt: string;
+    contentType?: string;
+  }[],
 };
+
+const DOCUMENT_STATUS_OPTIONS = ["Under Preparing", "Submiting", "Approved"];
 
 export default function App() {
   const navigate = useNavigate();
@@ -514,6 +527,7 @@ export default function App() {
   const [isSavingProject, setIsSavingProject] = useState(false);
   const [isSavingWMS, setIsSavingWMS] = useState(false);
   const [isSavingJSA, setIsSavingJSA] = useState(false);
+  const [isUploadingJSAFiles, setIsUploadingJSAFiles] = useState(false);
 
   // Modal แก้ไข User
   const [editUserModal, setEditUserModal] = useState<(UserProfile & { id: string }) | null>(null);
@@ -844,9 +858,62 @@ export default function App() {
     setJsaFormData({ ...jsaFormData, items: newItems });
   };
 
+  const handleJSAFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    if (!user) {
+      alert("รอการยืนยันตัวตนสักครู่...");
+      e.target.value = "";
+      return;
+    }
+
+    const ensuredDocId = jsaFormData.id || Date.now().toString();
+    if (!jsaFormData.id) {
+      setJsaFormData((prev: Record<string, any>) => ({ ...prev, id: ensuredDocId }));
+    }
+
+    setIsUploadingJSAFiles(true);
+    try {
+      const uploaded = await Promise.all(
+        Array.from(files).map(async (file) => {
+          const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+          const path = `jsa_attachments/${ensuredDocId}/${Date.now()}_${safeName}`;
+          const fileRef = storageRef(storage, path);
+          await uploadBytes(fileRef, file);
+          const url = await getDownloadURL(fileRef);
+          return {
+            name: file.name,
+            url,
+            path,
+            uploadedAt: new Date().toISOString(),
+            contentType: file.type || undefined,
+          };
+        })
+      );
+
+      setJsaFormData((prev: Record<string, any>) => ({
+        ...prev,
+        attachments: [...(prev.attachments || []), ...uploaded],
+      }));
+    } catch (err) {
+      console.error("Error uploading JSA files:", err);
+      alert("อัปโหลดไฟล์ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง");
+    } finally {
+      setIsUploadingJSAFiles(false);
+      e.target.value = "";
+    }
+  };
+
+  const handleJSARemoveAttachment = (index: number) => {
+    setJsaFormData((prev: Record<string, any>) => ({
+      ...prev,
+      attachments: (prev.attachments || []).filter((_: any, i: number) => i !== index),
+    }));
+  };
+
   const handleJSASubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isSavingJSA) return;
+    if (isSavingJSA || isUploadingJSAFiles) return;
     if (!user) return alert("รอการยืนยันตัวตนสักครู่...");
     const isNew = !jsaFormData.id;
     const docId = isNew ? Date.now().toString() : jsaFormData.id;
@@ -1269,6 +1336,25 @@ export default function App() {
               handleWMSChange,
               ""
             )}
+            <div className="mb-4">
+              <div className="flex justify-between items-end mb-1">
+                <label className="block text-sm font-semibold text-gray-700">
+                  Status
+                </label>
+              </div>
+              <select
+                name="status"
+                value={wmsFormData.status || "Under Preparing"}
+                onChange={handleWMSChange}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-colors bg-white"
+              >
+                {DOCUMENT_STATUS_OPTIONS.map((status) => (
+                  <option key={status} value={status}>
+                    {status}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
         </section>
         <section>
@@ -2034,6 +2120,25 @@ export default function App() {
             jsaFormData.rev,
             handleJSAChange
           )}
+          <div className="mb-4">
+            <div className="flex justify-between items-end mb-1">
+              <label className="block text-sm font-semibold text-gray-700">
+                Status
+              </label>
+            </div>
+            <select
+              name="status"
+              value={jsaFormData.status || "Under Preparing"}
+              onChange={handleJSAChange}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none transition-colors bg-white"
+            >
+              {DOCUMENT_STATUS_OPTIONS.map((status) => (
+                <option key={status} value={status}>
+                  {status}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
         <div className="border rounded-lg overflow-hidden">
@@ -2127,6 +2232,73 @@ export default function App() {
           </div>
         </div>
 
+        <section className="border rounded-lg p-4 bg-white">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-3">
+            <div>
+              <h3 className="text-sm font-semibold text-gray-800">ไฟล์แนบ (JSA Attachments)</h3>
+              <p className="text-xs text-gray-500">ไฟล์ที่อัปโหลดจะถูกจัดเก็บบน Firebase Storage และสามารถเปิดดูในแท็บใหม่ได้</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                id="jsa-file-upload"
+                type="file"
+                multiple
+                className="hidden"
+                onChange={handleJSAFileUpload}
+              />
+              <button
+                type="button"
+                onClick={() => document.getElementById("jsa-file-upload")?.click()}
+                disabled={isUploadingJSAFiles}
+                className="inline-flex items-center px-3 py-2 bg-orange-100 text-orange-700 rounded-md text-sm font-medium border border-orange-200 hover:bg-orange-200 disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {isUploadingJSAFiles ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Paperclip className="w-4 h-4 mr-2" />}
+                {isUploadingJSAFiles ? "กำลังอัปโหลด..." : "อัปโหลดไฟล์"}
+              </button>
+            </div>
+          </div>
+
+          {(jsaFormData.attachments || []).length === 0 ? (
+            <p className="text-sm text-gray-400">ยังไม่มีไฟล์แนบ</p>
+          ) : (
+            <div className="space-y-2">
+              {(jsaFormData.attachments as any[]).map((att: any, idx: number) => (
+                <div key={`${att.path || att.url || att.name}-${idx}`} className="flex items-center gap-3 p-2.5 border rounded-lg bg-gray-50">
+                  <Paperclip className="w-4 h-4 text-orange-600 flex-shrink-0" />
+                  <a
+                    href={att.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm text-orange-700 hover:text-orange-800 hover:underline truncate"
+                    title={att.name}
+                  >
+                    {att.name || "ไฟล์แนบ"}
+                  </a>
+                  <div className="ml-auto flex items-center gap-1">
+                    <a
+                      href={att.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="p-1.5 text-orange-600 hover:bg-orange-100 rounded transition-colors"
+                      title="เปิดไฟล์"
+                    >
+                      <Eye size={16} />
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => handleJSARemoveAttachment(idx)}
+                      className="p-1.5 text-red-500 hover:bg-red-50 rounded transition-colors"
+                      title="ลบรายการไฟล์"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
         <div className="flex justify-end gap-4 border-t pt-4">
           <button
             type="button"
@@ -2137,7 +2309,7 @@ export default function App() {
           </button>
           <button
             type="submit"
-            disabled={isSavingJSA}
+            disabled={isSavingJSA || isUploadingJSAFiles}
             className="px-6 py-2 bg-orange-600 rounded-lg text-white flex items-center disabled:opacity-60 disabled:cursor-not-allowed"
           >
             {isSavingJSA ? <Loader2 className="w-5 h-5 mr-2 animate-spin" /> : <Save className="w-5 h-5 mr-2" />}
@@ -2947,6 +3119,9 @@ export default function App() {
                         <th className="font-semibold">
                           ชื่องาน (Job Title)
                         </th>
+                        <th className="font-semibold w-40 text-center">
+                          Status
+                        </th>
                         <th className="font-semibold w-24 text-center">
                           Rev.
                         </th>
@@ -2971,6 +3146,11 @@ export default function App() {
                             {activeTab === "wms"
                               ? doc.documentTitle
                               : doc.jobTitle || "(ไม่มีชื่อ)"}
+                          </td>
+                          <td className="text-center">
+                            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
+                              {doc.status || "Under Preparing"}
+                            </span>
                           </td>
                           <td className="text-center text-gray-600">
                             {doc.rev}
@@ -3007,7 +3187,7 @@ export default function App() {
                                     setWmsFormData({ ...doc, attachments: doc.attachments || [] });
                                     setView("form");
                                   } else {
-                                    setJsaFormData({ ...doc, items: doc.items || [] });
+                                    setJsaFormData({ ...doc, items: doc.items || [], attachments: doc.attachments || [] });
                                     setView("form");
                                   }
                                 }}
