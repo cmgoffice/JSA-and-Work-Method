@@ -876,6 +876,11 @@ export default function App() {
     try {
       const uploaded = await Promise.all(
         Array.from(files).map(async (file) => {
+          // ตรวจสอบขนาดไฟล์ (ไม่เกิน 10MB)
+          if (file.size > 10 * 1024 * 1024) {
+            throw new Error(`ไฟล์ "${file.name}" มีขนาดใหญ่เกิน 10MB`);
+          }
+          
           const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
           const path = `jsa_attachments/${ensuredDocId}/${Date.now()}_${safeName}`;
           const fileRef = storageRef(storage, path);
@@ -895,9 +900,23 @@ export default function App() {
         ...prev,
         attachments: [...(prev.attachments || []), ...uploaded],
       }));
-    } catch (err) {
+    } catch (err: any) {
       console.error("Error uploading JSA files:", err);
-      alert("อัปโหลดไฟล์ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง");
+      
+      // แสดงข้อความข้อผิดพลาดที่ชัดเจนขึ้น
+      let errorMessage = "อัปโหลดไฟล์ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง";
+      
+      if (err?.code === 'storage/unauthorized') {
+        errorMessage = "ไม่มีสิทธิ์อัปโหลดไฟล์ กรุณาตรวจสอบการตั้งค่า Storage Rules";
+      } else if (err?.code === 'storage/canceled') {
+        errorMessage = "การอัปโหลดถูกยกเลิก";
+      } else if (err?.code === 'storage/unknown') {
+        errorMessage = "เกิดข้อผิดพลาดที่ไม่ทราบสาเหตุ กรุณาตรวจสอบการเชื่อมต่ออินเทอร์เน็ต";
+      } else if (err?.message) {
+        errorMessage = err.message;
+      }
+      
+      alert(errorMessage);
     } finally {
       setIsUploadingJSAFiles(false);
       e.target.value = "";

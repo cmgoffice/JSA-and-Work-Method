@@ -1,0 +1,30 @@
+rules_version = '2';
+
+// Firebase Storage Rules
+service firebase.storage {
+  match /b/{bucket}/o {
+    // อนุญาตให้ผู้ใช้ที่ล็อกอินแล้วอัปโหลดและอ่านไฟล์ใน jsa_attachments
+    match /jsa_attachments/{jsaId}/{fileName} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null 
+                   && request.resource.size < 10 * 1024 * 1024  // จำกัดขนาดไฟล์ไม่เกิน 10MB
+                   && request.resource.contentType.matches('image/.*|application/pdf|application/msword|application/vnd.openxmlformats-officedocument.*|text/.*');
+    }
+    
+    // อนุญาตให้ผู้ใช้ที่ล็อกอินแล้วอัปโหลดและอ่านไฟล์ใน wms_attachments
+    match /wms_attachments/{wmsId}/{fileName} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null 
+                   && request.resource.size < 10 * 1024 * 1024
+                   && request.resource.contentType.matches('image/.*|application/pdf|application/msword|application/vnd.openxmlformats-officedocument.*|text/.*');
+    }
+    
+    // อนุญาตให้ผู้ใช้ที่ล็อกอินแล้วอัปโหลดและอ่านไฟล์ใน project_attachments
+    match /project_attachments/{projectId}/{fileName} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null 
+                   && request.resource.size < 10 * 1024 * 1024
+                   && request.resource.contentType.matches('image/.*|application/pdf|application/msword|application/vnd.openxmlformats-officedocument.*|text/.*');
+    }
+  }
+}
