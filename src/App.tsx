@@ -4,6 +4,7 @@ import {
   Plus,
   FileText,
   Trash2,
+  Pencil,
   ArrowLeft,
   Save,
   Download,
@@ -254,6 +255,53 @@ const buildWordExportStyles = (isLandscape: boolean): string => {
         .jsa-print-outer-td > table tbody td { background: #e6f2e6; }
         .dotted-border td { border-bottom: 1pt dotted #000; }
       `;
+};
+
+const compareTextValues = (a: string, b: string) =>
+  a.localeCompare(b, undefined, {
+    numeric: true,
+    sensitivity: "base",
+  });
+
+const getJSARevisionRank = (rev: unknown): number => {
+  if (typeof rev === "number" && Number.isFinite(rev)) return rev;
+
+  const rawRev = `${rev ?? ""}`.trim();
+  if (!rawRev) return Number.NEGATIVE_INFINITY;
+
+  const numericMatch = rawRev.match(/-?\d+(?:\.\d+)?/);
+  if (!numericMatch) return Number.NEGATIVE_INFINITY;
+
+  const parsed = Number.parseFloat(numericMatch[0]);
+  return Number.isFinite(parsed) ? parsed : Number.NEGATIVE_INFINITY;
+};
+
+const compareJSADocuments = (a: any, b: any) => {
+  const titleA = (a.jobTitle || "").trim();
+  const titleB = (b.jobTitle || "").trim();
+
+  if (!titleA && !titleB) return 0;
+  if (!titleA) return 1;
+  if (!titleB) return -1;
+
+  const titleComparison = compareTextValues(titleA, titleB);
+  if (titleComparison !== 0) return titleComparison;
+
+  const revisionDiff = getJSARevisionRank(b.rev) - getJSARevisionRank(a.rev);
+  if (revisionDiff !== 0) return revisionDiff;
+
+  const rawRevComparison = compareTextValues(`${b.rev ?? ""}`, `${a.rev ?? ""}`);
+  if (rawRevComparison !== 0) return rawRevComparison;
+
+  return compareTextValues(`${b.date ?? ""}`, `${a.date ?? ""}`);
+};
+
+const getJSAGroupKey = (doc: any) => {
+  const jobTitle = (doc.jobTitle || "").trim().toLowerCase();
+  if (!jobTitle) return `untitled::${doc.id}`;
+
+  const project = (doc.project || "").trim().toLowerCase();
+  return `${project}::${jobTitle}`;
 };
 
 // --- Helper Function: Export to MS Word ---
@@ -522,6 +570,7 @@ export default function App() {
   const [jsaDocuments, setJsaDocuments] = useState<any[]>([]);
   const [jsaFormData, setJsaFormData] = useState<any>(initialJSAFormState);
   const [currentJSADoc, setCurrentJSADoc] = useState<any>(null);
+  const [expandedJSAGroups, setExpandedJSAGroups] = useState<Record<string, boolean>>({});
 
   // ป้องกันการบันทึกซ้ำ (Realtime safe)
   const [isSavingProject, setIsSavingProject] = useState(false);
@@ -1038,6 +1087,10 @@ export default function App() {
   };
 
   // --- Filtering Logic (แยกตามโครงการ) ---
+  const projectNameToDisplay = new Map(
+    projects.map((p) => [p.projectName, p.projectNo || p.projectName])
+  );
+
   const allProjectNames = Array.from(
     new Set([
       ...projects.map((p) => p.projectName),
@@ -1047,6 +1100,11 @@ export default function App() {
   )
     .filter(Boolean)
     .sort();
+
+  const projectFilterOptions = allProjectNames.map((projectName) => ({
+    value: projectName,
+    label: projectNameToDisplay.get(projectName) || projectName,
+  }));
 
   const assignableProjectNames = Array.from(
     new Set(projects.map((p) => p.projectName).filter(Boolean))
@@ -1064,9 +1122,145 @@ export default function App() {
   );
 
   // สำหรับการ Render Table List
+  const sortedJSA = [...filteredJSA].sort(compareJSADocuments);
+
+  const groupedJSA = useMemo(() => {
+    const grouped = new Map<string, any[]>();
+
+    sortedJSA.forEach((doc) => {
+      const groupKey = getJSAGroupKey(doc);
+      const existing = grouped.get(groupKey);
+      if (existing) {
+        existing.push(doc);
+        return;
+      }
+
+      grouped.set(groupKey, [doc]);
+    });
+
+    return Array.from(grouped.entries()).map(([groupKey, docs]) => ({
+      groupKey,
+      latestDoc: docs[0],
+      olderDocs: docs.slice(1),
+    }));
+  }, [sortedJSA]);
+
+  const displayJSARows = useMemo(
+    () =>
+      groupedJSA.flatMap(({ groupKey, latestDoc, olderDocs }) => {
+        const isExpanded = !!expandedJSAGroups[groupKey];
+
+        return [
+          {
+            ...latestDoc,
+            _rowKind: "latest",
+            _groupKey: groupKey,
+            _hasOlderDocs: olderDocs.length > 0,
+            _olderDocsCount: olderDocs.length,
+            _isExpanded: isExpanded,
+          },
+          ...(!isExpanded
+            ? []
+            : olderDocs.map((doc) => ({
+                ...doc,
+                _rowKind: "older",
+                _groupKey: groupKey,
+                _hasOlderDocs: false,
+                _olderDocsCount: 0,
+                _isExpanded: false,
+              }))),
+        ];
+      }),
+    [expandedJSAGroups, groupedJSA]
+  );
+
   let displayDocuments: any[] = [];
   if (activeTab === "wms") displayDocuments = filteredWMS;
-  if (activeTab === "jsa") displayDocuments = filteredJSA;
+  if (activeTab === "jsa") displayDocuments = displayJSARows;
+
+  const hasNoDisplayDocuments =
+    activeTab === "jsa" ? groupedJSA.length === 0 : displayDocuments.length === 0;
+
+  const openProjectFromRow = (proj: any) => {
+    if (!canEdit) return;
+    setProjectFormData({ ...initialProjectFormState, ...proj });
+    setView("form");
+  };
+
+  const openDocumentDetail = (doc: any) => {
+    if (activeTab === "wms") setCurrentWMSDoc(doc);
+    if (activeTab === "jsa") setCurrentJSADoc(doc);
+    setView("detail");
+  };
+
+  const openDocumentDetailFromKeyboard = (
+    e: React.KeyboardEvent<HTMLTableRowElement>,
+    doc: any
+  ) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    e.preventDefault();
+    openDocumentDetail(doc);
+  };
+
+  const toggleJSAGroup = (groupKey: string) => {
+    setExpandedJSAGroups((prev) => ({
+      ...prev,
+      [groupKey]: !prev[groupKey],
+    }));
+  };
+
+  const renderDocumentActionButtons = (doc: any) => (
+    <div className="flex items-center justify-end gap-1">
+      <button
+        onClick={() => {
+          activeTab === "wms"
+            ? setCurrentWMSDoc(doc)
+            : setCurrentJSADoc(doc);
+          setView("detail");
+        }}
+        className={`hidden ${
+          activeTab === "wms"
+            ? "bg-blue-50 text-blue-600 hover:bg-blue-100"
+            : "bg-orange-50 text-orange-600 hover:bg-orange-100"
+        }`}
+      >
+        เปิดดู
+      </button>
+      {canEdit && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            if (activeTab === "wms") {
+              setWmsFormData({ ...doc, attachments: doc.attachments || [] });
+              setView("form");
+            } else {
+              setJsaFormData({ ...doc, items: doc.items || [], attachments: doc.attachments || [] });
+              setView("form");
+            }
+          }}
+          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[0px] font-semibold transition-colors bg-yellow-50 text-yellow-700 hover:bg-yellow-100"
+          title="แก้ไข"
+        >
+          <Pencil className="w-3.5 h-3.5" />
+          แก้ไข
+        </button>
+      )}
+      {canDelete && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            activeTab === "wms"
+              ? deleteWMS(doc.id)
+              : deleteJSA(doc.id);
+          }}
+          className="inline-flex h-7 w-7 items-center justify-center bg-red-50 text-red-600 hover:bg-red-100 rounded-md transition-colors"
+          title="ลบ"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+      )}
+    </div>
+  );
 
   // === Render Helpers ===
   const renderInput = (
@@ -2371,10 +2565,63 @@ export default function App() {
         </div>
       </div>
 
+      <div className="flex gap-6 items-start print:block">
+        <div className="w-80 flex-shrink-0 print:hidden">
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden sticky top-4">
+            <div className="bg-orange-600 px-4 py-3 flex items-center gap-2">
+              <Paperclip size={16} className="text-white" />
+              <span className="text-white font-semibold text-sm">ไฟล์แนบ JSA</span>
+              <span className="ml-auto bg-orange-500 text-orange-50 text-xs px-2 py-0.5 rounded-full">
+                {(currentJSADoc?.attachments || []).length}
+              </span>
+            </div>
+
+            {(currentJSADoc?.attachments || []).length === 0 ? (
+              <div className="px-4 py-8 text-center">
+                <Paperclip size={32} className="mx-auto text-gray-300 mb-2" />
+                <p className="text-sm text-gray-400">ไม่มีไฟล์แนบ</p>
+              </div>
+            ) : (
+              <div className="px-4 py-3 space-y-2">
+                {(currentJSADoc?.attachments as any[] || []).map((att: any, idx: number) => {
+                  const attachmentUrl = att.url || att.data;
+                  if (!attachmentUrl) return null;
+
+                  return (
+                    <a
+                      key={`${att.path || attachmentUrl}-${idx}`}
+                      href={attachmentUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block rounded-lg border border-orange-100 bg-orange-50/60 p-3 hover:bg-orange-100 transition-colors group"
+                      title={att.name || attachmentUrl}
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className="w-9 h-9 flex items-center justify-center bg-white rounded-lg border border-orange-200 flex-shrink-0 group-hover:border-orange-300">
+                          <LinkIcon size={16} className="text-orange-600" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium text-orange-800 truncate">
+                            {att.name || "ไฟล์แนบ"}
+                          </p>
+                          <p className="text-xs text-orange-700/80 break-all mt-1 line-clamp-2">
+                            {attachmentUrl}
+                          </p>
+                        </div>
+                        <Eye size={14} className="text-orange-500 flex-shrink-0 mt-0.5" />
+                      </div>
+                    </a>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+
       {/* Printable Area - Designed for Landscape A4 */}
       <div
         id="printable-jsa"
-        className="document-export-preview jsa-print-document bg-white shadow-md mx-auto print:shadow-none min-h-[210mm] print:min-h-0 p-3 sm:p-4 print:p-0"
+        className="document-export-preview jsa-print-document bg-white shadow-md mx-auto print:shadow-none min-h-[210mm] print:min-h-0 p-3 sm:p-4 print:p-0 flex-1"
         style={{ maxWidth: "297mm" }}
       >
         <table className="jsa-print-outer-table w-full border-collapse table-fixed">
@@ -2539,6 +2786,7 @@ export default function App() {
             </tr>
           </tbody>
         </table>
+      </div>
       </div>
     </div>
   );
@@ -2924,9 +3172,9 @@ export default function App() {
                   className="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block py-2 px-3 outline-none min-w-[200px] flex-1 sm:flex-none"
                 >
                   <option value="All">แสดงทั้งหมด (All Projects)</option>
-                  {allProjectNames.map((p, i) => (
-                    <option key={i} value={p}>
-                      {p}
+                  {projectFilterOptions.map((option, i) => (
+                    <option key={i} value={option.value}>
+                      {option.label}
                     </option>
                   ))}
                 </select>
@@ -3007,11 +3255,11 @@ export default function App() {
                         {adminUsers.map((u) => (
                           <tr key={u.id} className="hover:bg-gray-50">
                             <td>
-                              <div className="w-10 h-10 rounded-full overflow-hidden bg-gray-200 flex items-center justify-center flex-shrink-0">
+                              <div className="w-7 h-7 rounded-full overflow-hidden bg-gray-200 flex items-center justify-center flex-shrink-0">
                                 {u.photoURL ? (
                                   <img src={u.photoURL} alt="" className="w-full h-full object-cover" />
                                 ) : (
-                                  <UserCircle className="w-6 h-6 text-gray-400" />
+                                  <UserCircle className="w-5 h-5 text-gray-400" />
                                 )}
                               </div>
                             </td>
@@ -3019,17 +3267,17 @@ export default function App() {
                             <td className="font-medium text-gray-800">{u.firstName} {u.lastName}</td>
                             <td className="text-gray-600">{u.position || "-"}</td>
                             <td>
-                              <div className="flex flex-wrap gap-1">
+                              <div className="flex flex-nowrap gap-1 overflow-hidden">
                                 {Array.isArray(u.role) && u.role.length > 0
                                   ? u.role.map((r) => (
-                                      <span key={r} className="px-2 py-0.5 rounded-full text-xs font-medium bg-violet-100 text-violet-800">{r}</span>
+                                      <span key={r} className="px-1.5 py-0.5 rounded-full text-[11px] leading-none font-medium bg-violet-100 text-violet-800 flex-shrink-0">{r}</span>
                                     ))
                                   : <span className="text-gray-400">-</span>}
                               </div>
                             </td>
                             <td>
                               <span
-                                className={`px-2 py-1 rounded text-xs font-medium ${
+                                className={`px-1.5 py-0.5 rounded text-[11px] leading-none font-medium ${
                                   u.status === "approved"
                                     ? "bg-green-100 text-green-800"
                                     : u.status === "pending"
@@ -3043,9 +3291,10 @@ export default function App() {
                             <td className="text-right">
                               <button
                                 onClick={() => openEditUserModal(u)}
-                                className="inline-flex items-center gap-1 px-3 py-1.5 bg-violet-50 text-violet-700 hover:bg-violet-100 rounded-md font-medium transition-colors text-xs"
+                                className="inline-flex h-7 w-7 items-center justify-center bg-violet-50 text-violet-700 hover:bg-violet-100 rounded-md font-medium transition-colors text-[0px]"
+                                title="แก้ไข"
                               >
-                                <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                                <Pencil className="w-3.5 h-3.5" />
                                 แก้ไข
                               </button>
                             </td>
@@ -3084,7 +3333,11 @@ export default function App() {
                     </thead>
                     <tbody className="divide-y divide-gray-100">
                       {projects.map((proj) => (
-                        <tr key={proj.id} className="hover:bg-gray-50">
+                        <tr
+                          key={proj.id}
+                          className={`hover:bg-gray-50 ${canEdit ? "cursor-pointer" : ""}`}
+                          onClick={() => openProjectFromRow(proj)}
+                        >
                           <td className="font-medium text-emerald-700">
                             {proj.projectNo || "-"}
                           </td>
@@ -3100,10 +3353,14 @@ export default function App() {
                           {canDelete && (
                           <td className="text-right">
                             <button
-                              onClick={() => deleteProject(proj.id)}
-                              className="inline-flex items-center px-3 py-1.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-md font-medium transition-colors"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                deleteProject(proj.id);
+                              }}
+                              className="inline-flex h-7 w-7 items-center justify-center bg-red-50 text-red-600 hover:bg-red-100 rounded-md transition-colors"
+                              title="ลบ"
                             >
-                              <Trash2 className="w-4 h-4" />
+                              <Trash2 className="w-3.5 h-3.5" />
                             </button>
                           </td>
                           )}
@@ -3115,7 +3372,7 @@ export default function App() {
 
               {/* WMS / JSA Table */}
               {(activeTab === "wms" || activeTab === "jsa") &&
-                (displayDocuments.length === 0 ? (
+                (hasNoDisplayDocuments ? (
                   <div className="p-16 text-center text-gray-500">
                     <div className="flex justify-center mb-4 opacity-50">
                       {activeTab === "wms" ? (
@@ -3150,16 +3407,74 @@ export default function App() {
                         <th className="font-semibold w-36">
                           ผู้จัดทำ
                         </th>
-                        <th className="font-semibold w-40 text-right">
+                        {(canEdit || canDelete) && (
+                          <th className="font-semibold w-20 text-right">
                           จัดการ
-                        </th>
+                          </th>
+                        )}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
                       {displayDocuments.map((doc) => (
-                        <tr key={doc.id} className="hover:bg-gray-50">
-                          <td className="font-semibold text-blue-700">
-                            {doc.project || "-"}
+                        <tr
+                          key={doc.id}
+                          className={`cursor-pointer focus:outline-none ${
+                            activeTab === "jsa" && doc._rowKind === "older"
+                              ? "bg-orange-50/40 hover:bg-orange-50 focus:bg-orange-100/70"
+                              : "hover:bg-gray-50 focus:bg-blue-50/60"
+                          }`}
+                          onClick={() => openDocumentDetail(doc)}
+                          onKeyDown={(e) => openDocumentDetailFromKeyboard(e, doc)}
+                          role="button"
+                          tabIndex={0}
+                          title="เปิดดูรายละเอียด"
+                        >
+                          <td
+                            className={`text-blue-700 ${
+                              activeTab === "jsa" && doc._rowKind === "older"
+                                ? "font-normal opacity-80"
+                                : "font-semibold"
+                            }`}
+                          >
+                            {activeTab === "jsa" ? (
+                              <div className="flex items-center gap-2">
+                                {doc._rowKind === "latest" && doc._hasOlderDocs ? (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      toggleJSAGroup(doc._groupKey);
+                                    }}
+                                    className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-gray-200 bg-white text-gray-500 hover:bg-gray-100"
+                                    title={doc._isExpanded ? "ซ่อน Rev. เก่า" : "แสดง Rev. เก่า"}
+                                    aria-label={doc._isExpanded ? "ซ่อน Rev. เก่า" : "แสดง Rev. เก่า"}
+                                    aria-expanded={doc._isExpanded}
+                                  >
+                                    {doc._isExpanded ? (
+                                      <ChevronDown className="w-4 h-4" />
+                                    ) : (
+                                      <ChevronRight className="w-4 h-4" />
+                                    )}
+                                  </button>
+                                ) : doc._rowKind === "older" ? (
+                                  <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-orange-100 text-[11px] font-medium text-orange-700">
+                                    เก่า
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex h-7 w-7 shrink-0" />
+                                )}
+                                <div className="min-w-0">
+                                  <div>{doc.project || "-"}</div>
+                                  {doc._rowKind === "latest" && doc._hasOlderDocs && (
+                                    <div className="text-xs font-normal text-gray-500">
+                                      ซ่อน Rev. เก่า {doc._olderDocsCount} รายการ
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            ) : (
+                              doc.project || "-"
+                            )}
                           </td>
                           <td className="font-medium text-gray-800">
                             {activeTab === "wms"
@@ -3167,11 +3482,17 @@ export default function App() {
                               : doc.jobTitle || "(ไม่มีชื่อ)"}
                           </td>
                           <td className="text-center">
-                            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[11px] leading-none font-medium bg-gray-100 text-gray-700">
                               {doc.status || "Under Preparing"}
                             </span>
                           </td>
-                          <td className="text-center text-gray-600">
+                          <td
+                            className={`text-center text-gray-600 ${
+                              activeTab === "jsa" && doc._rowKind === "latest"
+                                ? "font-semibold"
+                                : ""
+                            }`}
+                          >
                             {doc.rev}
                           </td>
                           <td className="text-gray-600">
@@ -3180,8 +3501,9 @@ export default function App() {
                           <td className="text-gray-600">
                             {doc.preparedBy || "-"}
                           </td>
+                          {(canEdit || canDelete) && (
                           <td className="text-right">
-                            <div className="flex items-center justify-end gap-2">
+                            <div className="flex items-center justify-end gap-1">
                               {/* ปุ่มเปิดดู: ทุก role เห็น */}
                               <button
                                 onClick={() => {
@@ -3190,7 +3512,7 @@ export default function App() {
                                     : setCurrentJSADoc(doc);
                                   setView("detail");
                                 }}
-                                className={`inline-flex items-center px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                                className={`hidden ${
                                   activeTab === "wms"
                                     ? "bg-blue-50 text-blue-600 hover:bg-blue-100"
                                     : "bg-orange-50 text-orange-600 hover:bg-orange-100"
@@ -3201,7 +3523,8 @@ export default function App() {
                               {/* ปุ่มแก้ไข: เฉพาะ role ที่มีสิทธิ์ edit */}
                               {canEdit && (
                               <button
-                                onClick={() => {
+                                onClick={(e) => {
+                                  e.stopPropagation();
                                   if (activeTab === "wms") {
                                     setWmsFormData({ ...doc, attachments: doc.attachments || [] });
                                     setView("form");
@@ -3210,27 +3533,31 @@ export default function App() {
                                     setView("form");
                                   }
                                 }}
-                                className="inline-flex items-center px-3.5 py-2 rounded-md text-sm font-semibold transition-colors bg-yellow-50 text-yellow-700 hover:bg-yellow-100"
+                                className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[0px] font-semibold transition-colors bg-yellow-50 text-yellow-700 hover:bg-yellow-100"
+                                title="แก้ไข"
                               >
-                                <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5 mr-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                                <Pencil className="w-3.5 h-3.5" />
                                 แก้ไข
                               </button>
                               )}
                               {/* ปุ่มลบ: เฉพาะ role ที่มีสิทธิ์ delete */}
                               {canDelete && (
                               <button
-                                onClick={() =>
+                                onClick={(e) => {
+                                  e.stopPropagation();
                                   activeTab === "wms"
                                     ? deleteWMS(doc.id)
-                                    : deleteJSA(doc.id)
-                                }
-                                className="inline-flex items-center px-3 py-1.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-md text-sm font-medium transition-colors"
+                                    : deleteJSA(doc.id);
+                                }}
+                                className="inline-flex h-7 w-7 items-center justify-center bg-red-50 text-red-600 hover:bg-red-100 rounded-md transition-colors"
+                                title="ลบ"
                               >
-                                <Trash2 className="w-4 h-4" />
+                                <Trash2 className="w-3.5 h-3.5" />
                               </button>
                               )}
                             </div>
                           </td>
+                          )}
                         </tr>
                       ))}
                     </tbody>

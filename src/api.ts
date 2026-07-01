@@ -1,6 +1,6 @@
 /**
  * API สำหรับการบันทึก (สร้าง/แก้ไข/ลบ)
- * ใช้ REACT_APP_API_URL จาก .env
+ * ใช้ VITE_API_URL หรือ REACT_APP_API_URL จาก .env
  * รูปแบบที่คาดหวังจาก Backend:
  *   POST /api/projects     body: { ...project }
  *   DELETE /api/projects/:id
@@ -10,7 +10,9 @@
  *   DELETE /api/jsa/:id
  */
 
-const BASE = process.env.REACT_APP_API_URL || "";
+import { getEnv } from "./env";
+
+const BASE = getEnv("API_URL");
 
 function request<T>(
   path: string,
@@ -18,7 +20,7 @@ function request<T>(
 ): Promise<T> {
   const url = BASE ? `${BASE.replace(/\/$/, "")}${path}` : "";
   if (!url) {
-    return Promise.reject(new Error("REACT_APP_API_URL ไม่ได้ตั้งค่าใน .env"));
+    return Promise.reject(new Error("VITE_API_URL หรือ REACT_APP_API_URL ไม่ได้ตั้งค่าใน .env"));
   }
   return fetch(url, {
     ...options,

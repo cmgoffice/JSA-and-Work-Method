@@ -1,7 +1,7 @@
 {
   "hosting": {
     "target": "site-02",
-    "public": "build",
+    "public": "dist",
     "ignore": [
       "firebase.json",
       "**/.*",
