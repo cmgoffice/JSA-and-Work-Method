@@ -53,7 +53,6 @@ import {
   storage,
 } from "./firebase";
 import { getDocs } from "firebase/firestore";
-import { seedMockDataToFirestore } from "./seedData";
 import { api, useApiForSave } from "./api";
 import { useAuth } from "./contexts/AuthContext";
 import { logout as authLogout } from "./services/authService";
@@ -496,6 +495,45 @@ const initialWMSFormState = {
   attachments: [] as { type: "document" | "photo" | "url"; name: string; data: string; url?: string }[],
 };
 
+const normalizeJSAItems = (items: any[]): any[] => {
+  if (!items) return [];
+  return items.map((item: any) => {
+    if (item.hazards && Array.isArray(item.hazards)) {
+      return {
+        id: item.id || Date.now() + Math.random(),
+        step: item.step || "",
+        hazards: item.hazards.map((h: any) => ({
+          id: h.id || Date.now() + Math.random(),
+          hazard: h.hazard || "",
+          controls: (h.controls || []).map((c: any) => ({
+            id: c.id || Date.now() + Math.random(),
+            control: c.control || "",
+            responder: c.responder || ""
+          }))
+        }))
+      };
+    }
+    // Convert old flat format
+    return {
+      id: item.id || Date.now() + Math.random(),
+      step: item.step || "",
+      hazards: [
+        {
+          id: Date.now() + Math.random(),
+          hazard: item.hazard || "",
+          controls: [
+            {
+              id: Date.now() + Math.random(),
+              control: item.control || "",
+              responder: item.responder || ""
+            }
+          ]
+        }
+      ]
+    };
+  });
+};
+
 const initialJSAFormState = {
   id: "",
   client: "",
@@ -507,7 +545,25 @@ const initialJSAFormState = {
   approvedBy: "",
   date: new Date().toISOString().split("T")[0],
   rev: "00",
-  items: [{ id: Date.now(), step: "", hazard: "", control: "", responder: "" }],
+  items: [
+    {
+      id: Date.now(),
+      step: "",
+      hazards: [
+        {
+          id: Date.now() + 1,
+          hazard: "",
+          controls: [
+            {
+              id: Date.now() + 2,
+              control: "",
+              responder: "",
+            }
+          ]
+        }
+      ]
+    }
+  ],
   attachments: [] as {
     name: string;
     url: string;
@@ -642,23 +698,6 @@ export default function App() {
     };
   }, []);
 
-  // --- 1.1 Seed ข้อมูล Mock ครั้งแรก (เมื่อยังไม่มีใน Firebase) ---
-  useEffect(() => {
-    if (!user) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const metaSnap = await getDoc(metaDoc());
-        if (cancelled) return;
-        if (!metaSnap.exists() || !metaSnap.data()?.seeded) {
-          await seedMockDataToFirestore();
-        }
-      } catch (e) {
-        console.error("Seed check/run error:", e);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [user]);
 
   // --- โหลดรายชื่อผู้ใช้ (Realtime — สำหรับ SuperAdmin/Admin) ---
   useEffect(() => {
@@ -885,25 +924,93 @@ export default function App() {
     setJsaFormData((prev: Record<string, any>) => ({ ...prev, [name]: value }));
   };
 
-  const handleJSAItemChange = (index: number, field: string, value: string) => {
+  const handleJSAStepChange = (stepIndex: number, value: string) => {
     const newItems = [...jsaFormData.items];
-    newItems[index][field] = value;
+    newItems[stepIndex].step = value;
     setJsaFormData({ ...jsaFormData, items: newItems });
   };
 
-  const addJSAItem = () => {
+  const addJSAStep = () => {
+    const stepId = Date.now();
     setJsaFormData({
       ...jsaFormData,
       items: [
         ...jsaFormData.items,
-        { id: Date.now(), step: "", hazard: "", control: "", responder: "" },
-      ],
+        {
+          id: stepId,
+          step: "",
+          hazards: [
+            {
+              id: stepId + 1,
+              hazard: "",
+              controls: [
+                {
+                  id: stepId + 2,
+                  control: "",
+                  responder: ""
+                }
+              ]
+            }
+          ]
+        }
+      ]
     });
   };
 
-  const removeJSAItem = (index: number) => {
+  const removeJSAStep = (stepIndex: number) => {
     if (jsaFormData.items.length === 1) return;
-    const newItems = jsaFormData.items.filter((_: any, i: number): boolean => i !== index);
+    const newItems = jsaFormData.items.filter((_: any, i: number) => i !== stepIndex);
+    setJsaFormData({ ...jsaFormData, items: newItems });
+  };
+
+  const handleJSAHazardChange = (stepIndex: number, hazardIndex: number, value: string) => {
+    const newItems = [...jsaFormData.items];
+    newItems[stepIndex].hazards[hazardIndex].hazard = value;
+    setJsaFormData({ ...jsaFormData, items: newItems });
+  };
+
+  const addJSAHazard = (stepIndex: number) => {
+    const newItems = [...jsaFormData.items];
+    const hazardId = Date.now();
+    newItems[stepIndex].hazards.push({
+      id: hazardId,
+      hazard: "",
+      controls: [
+        {
+          id: hazardId + 1,
+          control: "",
+          responder: ""
+        }
+      ]
+    });
+    setJsaFormData({ ...jsaFormData, items: newItems });
+  };
+
+  const removeJSAHazard = (stepIndex: number, hazardIndex: number) => {
+    const newItems = [...jsaFormData.items];
+    newItems[stepIndex].hazards = newItems[stepIndex].hazards.filter((_: any, i: number) => i !== hazardIndex);
+    setJsaFormData({ ...jsaFormData, items: newItems });
+  };
+
+  const handleJSAControlChange = (stepIndex: number, hazardIndex: number, controlIndex: number, field: "control" | "responder", value: string) => {
+    const newItems = [...jsaFormData.items];
+    newItems[stepIndex].hazards[hazardIndex].controls[controlIndex][field] = value;
+    setJsaFormData({ ...jsaFormData, items: newItems });
+  };
+
+  const addJSAControl = (stepIndex: number, hazardIndex: number) => {
+    const newItems = [...jsaFormData.items];
+    newItems[stepIndex].hazards[hazardIndex].controls.push({
+      id: Date.now(),
+      control: "",
+      responder: ""
+    });
+    setJsaFormData({ ...jsaFormData, items: newItems });
+  };
+
+  const removeJSAControl = (stepIndex: number, hazardIndex: number, controlIndex: number) => {
+    const newItems = [...jsaFormData.items];
+    newItems[stepIndex].hazards[hazardIndex].controls = newItems[stepIndex].hazards[hazardIndex].controls.filter((_: any, i: number) => i !== controlIndex);
     setJsaFormData({ ...jsaFormData, items: newItems });
   };
 
@@ -1189,7 +1296,7 @@ export default function App() {
 
   const openDocumentDetail = (doc: any) => {
     if (activeTab === "wms") setCurrentWMSDoc(doc);
-    if (activeTab === "jsa") setCurrentJSADoc(doc);
+    if (activeTab === "jsa") setCurrentJSADoc(doc ? { ...doc, items: normalizeJSAItems(doc.items) } : null);
     setView("detail");
   };
 
@@ -1215,7 +1322,7 @@ export default function App() {
         onClick={() => {
           activeTab === "wms"
             ? setCurrentWMSDoc(doc)
-            : setCurrentJSADoc(doc);
+            : setCurrentJSADoc(doc ? { ...doc, items: normalizeJSAItems(doc.items) } : null);
           setView("detail");
         }}
         className={`hidden ${
@@ -1234,7 +1341,7 @@ export default function App() {
               setWmsFormData({ ...doc, attachments: doc.attachments || [] });
               setView("form");
             } else {
-              setJsaFormData({ ...doc, items: doc.items || [], attachments: doc.attachments || [] });
+              setJsaFormData({ ...doc, items: normalizeJSAItems(doc.items), attachments: doc.attachments || [] });
               setView("form");
             }
           }}
@@ -2369,75 +2476,148 @@ export default function App() {
               </tr>
             </thead>
             <tbody>
-              {jsaFormData.items.map((item: any, index: number) => (
-                <tr key={item.id} className="border-t">
-                  <td className="p-2 text-center font-medium text-gray-500">
-                    {index + 1}
-                  </td>
-                  <td className="p-2">
-                    <textarea
-                      rows={3}
-                      className="w-full p-2 border rounded resize-none text-sm outline-none focus:ring-1 focus:ring-orange-500"
-                      value={item.step}
-                      onChange={(e) =>
-                        handleJSAItemChange(index, "step", e.target.value)
-                      }
-                      required
-                      placeholder="ระบุขั้นตอน..."
-                    />
-                  </td>
-                  <td className="p-2">
-                    <textarea
-                      rows={3}
-                      className="w-full p-2 border rounded resize-none text-sm outline-none focus:ring-1 focus:ring-orange-500"
-                      value={item.hazard}
-                      onChange={(e) =>
-                        handleJSAItemChange(index, "hazard", e.target.value)
-                      }
-                      required
-                      placeholder="ระบุอันตราย..."
-                    />
-                  </td>
-                  <td className="p-2">
-                    <textarea
-                      rows={3}
-                      className="w-full p-2 border rounded resize-none text-sm outline-none focus:ring-1 focus:ring-orange-500"
-                      value={item.control}
-                      onChange={(e) =>
-                        handleJSAItemChange(index, "control", e.target.value)
-                      }
-                      required
-                      placeholder="ระบุมาตรการ..."
-                    />
-                  </td>
-                  <td className="p-2">
-                    <input
-                      type="text"
-                      className="w-full p-2 border rounded text-sm outline-none focus:ring-1 focus:ring-orange-500"
-                      value={item.responder}
-                      onChange={(e) =>
-                        handleJSAItemChange(index, "responder", e.target.value)
-                      }
-                      placeholder="ชื่อ/ตำแหน่ง"
-                    />
-                  </td>
-                  <td className="p-2 text-center">
-                    <button
-                      type="button"
-                      onClick={() => removeJSAItem(index)}
-                      className="text-red-500 hover:text-red-700 p-1 bg-red-50 hover:bg-red-100 rounded transition"
-                    >
-                      <MinusCircle size={20} />
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {jsaFormData.items.map((step: any, sIdx: number) => {
+                const stepRowsCount = step.hazards.reduce((acc: number, h: any) => acc + Math.max(1, h.controls.length), 0) || 1;
+
+                return step.hazards.flatMap((hazard: any, hIdx: number) => {
+                  const hazardRowsCount = Math.max(1, hazard.controls.length);
+
+                  return hazard.controls.map((control: any, cIdx: number) => {
+                    const isFirstStepRow = hIdx === 0 && cIdx === 0;
+                    const isFirstHazardRow = cIdx === 0;
+
+                    return (
+                      <tr key={`${step.id}-${hazard.id}-${control.id}`} className="border-t">
+                        {isFirstStepRow && (
+                          <>
+                            <td rowSpan={stepRowsCount} className="p-2 text-center align-top font-medium text-gray-500 border-r">
+                              {sIdx + 1}
+                            </td>
+                            <td rowSpan={stepRowsCount} className="p-2 align-top border-r w-1/4">
+                              <div className="flex flex-col h-full justify-between gap-2">
+                                <textarea
+                                  rows={4}
+                                  className="w-full p-2 border rounded resize-none text-sm outline-none focus:ring-1 focus:ring-orange-500"
+                                  value={step.step}
+                                  onChange={(e) =>
+                                    handleJSAStepChange(sIdx, e.target.value)
+                                  }
+                                  required
+                                  placeholder="ระบุขั้นตอน..."
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => addJSAHazard(sIdx)}
+                                  className="flex items-center self-start text-xs font-semibold px-2.5 py-1 bg-orange-50 text-orange-700 hover:bg-orange-100 rounded border border-orange-200 transition"
+                                >
+                                  <Plus size={12} className="mr-1" /> เพิ่มอันตราย (+ Hazard)
+                                </button>
+                              </div>
+                            </td>
+                          </>
+                        )}
+
+                        {isFirstHazardRow && (
+                          <td rowSpan={hazardRowsCount} className="p-2 align-top border-r w-1/4">
+                            <div className="flex flex-col h-full justify-between gap-2">
+                              <div className="flex gap-1 items-start">
+                                <span className="text-xs text-gray-400 font-semibold mt-2.5">{sIdx + 1}.{hIdx + 1}</span>
+                                <textarea
+                                  rows={3}
+                                  className="w-full p-2 border rounded resize-none text-sm outline-none focus:ring-1 focus:ring-orange-500"
+                                  value={hazard.hazard}
+                                  onChange={(e) =>
+                                    handleJSAHazardChange(sIdx, hIdx, e.target.value)
+                                  }
+                                  required
+                                  placeholder="ระบุอันตราย..."
+                                />
+                              </div>
+                              <div className="flex justify-between items-center mt-1">
+                                <button
+                                  type="button"
+                                  onClick={() => addJSAControl(sIdx, hIdx)}
+                                  className="flex items-center text-xs font-semibold px-2 py-0.5 bg-green-50 text-green-700 hover:bg-green-100 rounded border border-green-200 transition"
+                                >
+                                  <Plus size={12} className="mr-1" /> เพิ่มมาตรการ (+ Control)
+                                </button>
+                                {step.hazards.length > 1 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => removeJSAHazard(sIdx, hIdx)}
+                                    className="text-xs text-red-500 hover:text-red-700 hover:bg-red-50 px-1 py-0.5 rounded transition"
+                                    title="ลบอันตรายนี้"
+                                  >
+                                    ลบอันตราย
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+                        )}
+
+                        <td className="p-2 align-top border-r w-1/4">
+                          <div className="flex gap-1 items-start">
+                            <span className="text-xs text-gray-400 font-semibold mt-2.5">{sIdx + 1}.{hIdx + 1}.{cIdx + 1}</span>
+                            <textarea
+                              rows={3}
+                              className="w-full p-2 border rounded resize-none text-sm outline-none focus:ring-1 focus:ring-orange-500"
+                              value={control.control}
+                              onChange={(e) =>
+                                handleJSAControlChange(sIdx, hIdx, cIdx, "control", e.target.value)
+                              }
+                              required
+                              placeholder="ระบุมาตรการ..."
+                            />
+                          </div>
+                        </td>
+
+                        <td className="p-2 align-top border-r">
+                          <div className="flex flex-col gap-2 h-full justify-between">
+                            <input
+                              type="text"
+                              className="w-full p-2 border rounded text-sm outline-none focus:ring-1 focus:ring-orange-500"
+                              value={control.responder}
+                              onChange={(e) =>
+                                handleJSAControlChange(sIdx, hIdx, cIdx, "responder", e.target.value)
+                              }
+                              placeholder="ชื่อ/ตำแหน่ง"
+                            />
+                            {hazard.controls.length > 1 && (
+                              <button
+                                type="button"
+                                onClick={() => removeJSAControl(sIdx, hIdx, cIdx)}
+                                className="text-xs text-red-500 hover:text-red-700 self-end hover:bg-red-50 px-1 py-0.5 rounded transition"
+                              >
+                                ลบมาตรการ
+                              </button>
+                            )}
+                          </div>
+                        </td>
+
+                        <td className="p-2 text-center align-middle">
+                          {isFirstStepRow && (
+                            <button
+                              type="button"
+                              onClick={() => removeJSAStep(sIdx)}
+                              className="text-red-500 hover:text-red-700 p-1 bg-red-50 hover:bg-red-100 rounded transition"
+                              title="ลบขั้นตอนงานนี้"
+                            >
+                              <MinusCircle size={20} />
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  });
+                });
+              })}
             </tbody>
           </table>
           <div className="p-3 bg-gray-50 border-t flex justify-center">
             <button
               type="button"
-              onClick={addJSAItem}
+              onClick={addJSAStep}
               className="flex items-center px-4 py-2 bg-green-100 text-green-700 font-semibold rounded-lg hover:bg-green-200 transition shadow-sm border border-green-200"
             >
               <PlusCircle size={18} className="mr-2" /> เพิ่มขั้นตอน (Add Row)
@@ -2746,40 +2926,70 @@ export default function App() {
             </tr>
           </thead>
           <tbody className="bg-[#e6f2e6]">
-            {currentJSADoc?.items.map((item: any, index: number) => (
-              <tr key={index} className="border border-black dotted-border">
-                <td className="border-r border-l border-black py-1 px-1.5 text-center align-top border-b border-dotted">
-                  {index + 1}
-                </td>
-                <td className="border-r border-black py-1 px-1.5 align-top whitespace-pre-wrap border-b border-dotted">
-                  {item.step}
-                </td>
-                <td className="border-r border-black py-1 px-1.5 align-top whitespace-pre-wrap border-b border-dotted">
-                  {item.hazard}
-                </td>
-                <td className="border-r border-black py-1 px-1.5 align-top whitespace-pre-wrap border-b border-dotted">
-                  {item.control}
-                </td>
-                <td className="border-r border-black py-1 px-1.5 align-top text-center border-b border-dotted">
-                  {item.responder}
-                </td>
-              </tr>
-            ))}
+            {normalizeJSAItems(currentJSADoc?.items).map((step: any, sIdx: number) => {
+              const stepRowsCount = step.hazards.reduce((acc: number, h: any) => acc + Math.max(1, h.controls.length), 0) || 1;
+
+              return step.hazards.flatMap((hazard: any, hIdx: number) => {
+                const hazardRowsCount = Math.max(1, hazard.controls.length);
+
+                return hazard.controls.map((control: any, cIdx: number) => {
+                  const isFirstStepRow = hIdx === 0 && cIdx === 0;
+                  const isFirstHazardRow = cIdx === 0;
+
+                  return (
+                    <tr key={`${step.id}-${hazard.id}-${control.id}`} className="border border-black dotted-border">
+                      {isFirstStepRow && (
+                        <>
+                          <td rowSpan={stepRowsCount} className="border-r border-l border-black py-1 px-1.5 text-center align-top border-b border-dotted">
+                            {sIdx + 1}
+                          </td>
+                          <td rowSpan={stepRowsCount} className="border-r border-black py-1 px-1.5 align-top whitespace-pre-wrap border-b border-dotted">
+                            {step.step}
+                          </td>
+                        </>
+                      )}
+                      {isFirstHazardRow && (
+                        <td rowSpan={hazardRowsCount} className="border-r border-black py-1 px-1.5 align-top whitespace-pre-wrap border-b border-dotted">
+                          {`${sIdx + 1}.${hIdx + 1} ${hazard.hazard}`}
+                        </td>
+                      )}
+                      <td className="border-r border-black py-1 px-1.5 align-top whitespace-pre-wrap border-b border-dotted">
+                        {`${sIdx + 1}.${hIdx + 1}.${cIdx + 1} ${control.control}`}
+                      </td>
+                      <td className="border-r border-black py-1 px-1.5 align-top text-center border-b border-dotted whitespace-pre-wrap">
+                        {control.responder}
+                      </td>
+                    </tr>
+                  );
+                });
+              });
+            })}
             {/* Add empty rows if items are few, to make it look like a full form */}
-            {Array.from({
-              length: Math.max(0, 5 - (currentJSADoc?.items.length || 0)),
-            }).map((_, i) => (
-              <tr
-                key={`empty-${i}`}
-                className="border border-black dotted-border h-7"
-              >
-                <td className="border-r border-l border-black border-b border-dotted"></td>
-                <td className="border-r border-black border-b border-dotted"></td>
-                <td className="border-r border-black border-b border-dotted"></td>
-                <td className="border-r border-black border-b border-dotted"></td>
-                <td className="border-r border-black border-b border-dotted"></td>
-              </tr>
-            ))}
+            {(() => {
+              const totalRows = normalizeJSAItems(currentJSADoc?.items).reduce(
+                (acc: number, step: any) =>
+                  acc +
+                  step.hazards.reduce(
+                    (hAcc: number, h: any) => hAcc + Math.max(1, h.controls.length),
+                    0
+                  ),
+                0
+              );
+              return Array.from({
+                length: Math.max(0, 5 - totalRows),
+              }).map((_, i) => (
+                <tr
+                  key={`empty-${i}`}
+                  className="border border-black dotted-border h-7"
+                >
+                  <td className="border-r border-l border-black border-b border-dotted"></td>
+                  <td className="border-r border-black border-b border-dotted"></td>
+                  <td className="border-r border-black border-b border-dotted"></td>
+                  <td className="border-r border-black border-b border-dotted"></td>
+                  <td className="border-r border-black border-b border-dotted"></td>
+                </tr>
+              ));
+            })()}
           </tbody>
         </table>
               </td>
@@ -3509,7 +3719,7 @@ export default function App() {
                                 onClick={() => {
                                   activeTab === "wms"
                                     ? setCurrentWMSDoc(doc)
-                                    : setCurrentJSADoc(doc);
+                                    : setCurrentJSADoc(doc ? { ...doc, items: normalizeJSAItems(doc.items) } : null);
                                   setView("detail");
                                 }}
                                 className={`hidden ${
@@ -3529,7 +3739,7 @@ export default function App() {
                                     setWmsFormData({ ...doc, attachments: doc.attachments || [] });
                                     setView("form");
                                   } else {
-                                    setJsaFormData({ ...doc, items: doc.items || [], attachments: doc.attachments || [] });
+                                    setJsaFormData({ ...doc, items: normalizeJSAItems(doc.items), attachments: doc.attachments || [] });
                                     setView("form");
                                   }
                                 }}
