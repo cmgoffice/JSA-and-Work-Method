@@ -3,6 +3,8 @@ import {
   signInWithPopup,
   createUserWithEmailAndPassword,
   signOut,
+  setPersistence,
+  browserLocalPersistence,
   GoogleAuthProvider,
   User as FirebaseUser,
 } from "firebase/auth";
@@ -66,6 +68,8 @@ export async function loginWithEmail(
   email: string,
   password: string
 ): Promise<UserProfile> {
+  // ตั้งค่า persistence เป็น LOCAL เพื่อให้ Firebase จำ Token ใน localStorage
+  await setPersistence(auth, browserLocalPersistence);
   const uc = await signInWithEmailAndPassword(auth, email, password);
   setSessionExpiry();
   const profile = await fetchProfile(uc.user.uid);
@@ -75,6 +79,8 @@ export async function loginWithEmail(
 }
 
 export async function loginWithGoogle(): Promise<UserProfile> {
+  // ตั้งค่า persistence เป็น LOCAL เพื่อให้ Firebase จำ Token ใน localStorage
+  await setPersistence(auth, browserLocalPersistence);
   const result = await signInWithPopup(auth, googleProvider);
   setSessionExpiry();
   let profile = await fetchProfile(result.user.uid).catch(() => null);
@@ -94,6 +100,8 @@ export async function registerWithEmail(
   lastName: string,
   position: string
 ): Promise<UserProfile> {
+  // ตั้งค่า persistence เป็น LOCAL เพื่อให้ Firebase จำ Token ใน localStorage
+  await setPersistence(auth, browserLocalPersistence);
   const uc = await createUserWithEmailAndPassword(auth, email, password);
   setSessionExpiry();
 

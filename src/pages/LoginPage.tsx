@@ -1,3 +1,18 @@
+/**
+ * LoginPage.tsx
+ *
+ * Handling Loading State (สำคัญมาก):
+ * ─────────────────────────────────────────────────────────────────────────────
+ * ขณะที่ authLoading === true → Firebase กำลัง restore Token จาก localStorage
+ * ห้ามแสดงฟอร์ม Login เด็ดขาด → แสดง Spinner แทน
+ *
+ * เมื่อ authLoading === false:
+ *   • มี firebaseUser  → กำลัง redirect ไปหน้าหลัก (แสดง Spinner)
+ *   • ไม่มี firebaseUser → แสดงฟอร์ม Login เต็มรูปแบบ
+ *
+ * วิธีนี้ป้องกัน "Login Page Flash" ที่เกิดขึ้นเมื่อ user login อยู่แล้ว
+ * แต่ Firebase ยังตรวจ Token ไม่เสร็จ
+ */
 import React, { useState, useEffect } from "react";
 import { useNavigate, useLocation, Link } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
@@ -12,21 +27,54 @@ const FIREBASE_ERROR_MESSAGES: Record<string, string> = {
   "auth/unauthorized-domain": "โดเมนนี้ไม่ได้รับอนุญาต",
 };
 
+/** Spinner component ใช้ร่วมกันภายในไฟล์นี้ */
+function FullPageSpinner({ message }: { message: string }) {
+  return (
+    <div
+      className="min-h-screen flex items-center justify-center bg-gray-50"
+      style={{ fontFamily: "'Sarabun', sans-serif" }}
+    >
+      <div className="text-center">
+        <div className="inline-block w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-4" />
+        <p className="text-gray-600">{message}</p>
+      </div>
+    </div>
+  );
+}
+
 export default function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { userProfile, refreshProfile } = useAuth();
+
+  /**
+   * ดึง loading จาก AuthContext → นี่คือ "auth loading" ที่บ่งบอกว่า
+   * Firebase ยังตรวจสอบ Token อยู่หรือไม่ (ต่างจาก formLoading ด้านล่าง)
+   */
+  const { firebaseUser, userProfile, loading: authLoading, refreshProfile } = useAuth();
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
+  /** formLoading = loading ของ form submit เท่านั้น (ไม่เกี่ยวกับ auth state) */
+  const [formLoading, setFormLoading] = useState(false);
 
   const from = (location.state as { from?: { pathname: string } })?.from?.pathname ?? "/dashboard";
 
+  /**
+   * Routing Logic:
+   * เมื่อ authLoading สิ้นสุดลงและพบว่ามี userProfile → Redirect ทันที
+   * ตามสถานะของ profile (pending / approved / rejected)
+   */
   useEffect(() => {
+    // รอ auth ตรวจสอบเสร็จก่อน
+    if (authLoading) return;
+    // ไม่มี user → อยู่หน้า login ปกติ
+    if (!firebaseUser) return;
+    // มี user แต่ profile ยังโหลดไม่เสร็จ → รอ
     if (!userProfile) return;
+
     if (userProfile.status === "rejected") {
-      setError("บัญชีของคุณยังไม่ได้รับการอนุมัติ");
+      setError("บัญชีของคุณถูกปฏิเสธการอนุมัติ กรุณาติดต่อผู้ดูแลระบบ");
       return;
     }
     if (userProfile.status === "pending") {
@@ -36,37 +84,64 @@ export default function LoginPage() {
     if (userProfile.status === "approved") {
       navigate(from, { replace: true });
     }
-  }, [userProfile, navigate, from]);
+  }, [authLoading, firebaseUser, userProfile, navigate, from]);
 
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-    setLoading(true);
+    setFormLoading(true);
     try {
       await loginWithEmail(email, password);
+      // onAuthStateChanged ใน AuthContext จะ trigger refreshProfile อัตโนมัติ
+      // แต่เรียก refreshProfile เพิ่มเพื่อให้ userProfile อัปเดตเร็วขึ้น
       await refreshProfile();
     } catch (err: unknown) {
-      const code = err && typeof err === "object" && "code" in err ? (err as { code: string }).code : "";
-      setError(FIREBASE_ERROR_MESSAGES[code] ?? "เข้าสู่ระบบไม่สำเร็จ");
+      const code =
+        err && typeof err === "object" && "code" in err
+          ? (err as { code: string }).code
+          : "";
+      setError(FIREBASE_ERROR_MESSAGES[code] ?? "เข้าสู่ระบบไม่สำเร็จ กรุณาลองใหม่");
     } finally {
-      setLoading(false);
+      setFormLoading(false);
     }
   };
 
   const handleGoogleLogin = async () => {
     setError("");
-    setLoading(true);
+    setFormLoading(true);
     try {
       await loginWithGoogle();
       await refreshProfile();
     } catch (err: unknown) {
-      const code = err && typeof err === "object" && "code" in err ? (err as { code: string }).code : "";
+      const code =
+        err && typeof err === "object" && "code" in err
+          ? (err as { code: string }).code
+          : "";
       setError(FIREBASE_ERROR_MESSAGES[code] ?? "เข้าสู่ระบบด้วย Google ไม่สำเร็จ");
     } finally {
-      setLoading(false);
+      setFormLoading(false);
     }
   };
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // GATE 1: authLoading = true → Firebase ยังตรวจ Token อยู่
+  //         ห้ามเรนเดอร์ฟอร์ม Login เด็ดขาด → แสดง Spinner
+  // ─────────────────────────────────────────────────────────────────────────
+  if (authLoading) {
+    return <FullPageSpinner message="กำลังตรวจสอบสถานะการเข้าสู่ระบบ..." />;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // GATE 2: authLoading = false แต่มี user อยู่แล้ว → กำลัง redirect
+  //         แสดง Spinner เพื่อป้องกันหน้า Login กระพริบก่อน navigate
+  // ─────────────────────────────────────────────────────────────────────────
+  if (firebaseUser && userProfile?.status !== "rejected") {
+    return <FullPageSpinner message="กำลังนำทางไปยังระบบ..." />;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // GATE 3: ไม่มี user → แสดงฟอร์ม Login เต็มรูปแบบ
+  // ─────────────────────────────────────────────────────────────────────────
   return (
     <div
       className="min-h-screen flex items-center justify-center bg-gray-100 px-4"
@@ -105,10 +180,10 @@ export default function LoginPage() {
           </div>
           <button
             type="submit"
-            disabled={loading}
+            disabled={formLoading}
             className="w-full py-2.5 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
           >
-            {loading ? "กำลังเข้าสู่ระบบ..." : "เข้าสู่ระบบ"}
+            {formLoading ? "กำลังเข้าสู่ระบบ..." : "เข้าสู่ระบบ"}
           </button>
         </form>
 
@@ -121,7 +196,7 @@ export default function LoginPage() {
         <button
           type="button"
           onClick={handleGoogleLogin}
-          disabled={loading}
+          disabled={formLoading}
           className="w-full py-2.5 border border-gray-300 rounded-lg font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 flex items-center justify-center gap-2"
         >
           <svg className="w-5 h-5" viewBox="0 0 24 24">

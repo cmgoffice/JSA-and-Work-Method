@@ -832,8 +832,28 @@ export default function App() {
   const handleWMSFileUpload = (e: React.ChangeEvent<HTMLInputElement>, type: "document" | "photo") => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
+
+    // ตรวจสอบขนาดไฟล์ก่อนอัพโหลด
+    // WMS เก็บแบบ base64 ใน Firestore (จำกัด 1MB ต่อ document)
+    // ดังนั้นจำกัดไฟล์แต่ละไฟล์ไว้ที่ 400KB เพื่อป้องกัน document เกิน 1MB
+    const MAX_FILE_SIZE = 400 * 1024; // 400KB
+    const oversizedFiles = Array.from(files).filter((f) => f.size > MAX_FILE_SIZE);
+    if (oversizedFiles.length > 0) {
+      const names = oversizedFiles.map((f) => `"${f.name}" (${(f.size / 1024).toFixed(0)} KB)`).join(", ");
+      alert(
+        `ไฟล์ต่อไปนี้มีขนาดใหญ่เกิน 400KB:\n${names}\n\n` +
+        `เนื่องจาก WMS เก็บไฟล์แบบ Embedded ใน Database กรุณาใช้ไฟล์ขนาดเล็กลง\n` +
+        `หรือใช้วิธีแนบ URL แทน`
+      );
+      e.target.value = "";
+      return;
+    }
+
     Array.from(files).forEach((file) => {
       const reader = new FileReader();
+      reader.onerror = () => {
+        alert(`ไม่สามารถอ่านไฟล์ "${file.name}" ได้ กรุณาลองใหม่อีกครั้ง`);
+      };
       reader.onload = (ev) => {
         const data = ev.target?.result as string;
         setWmsFormData((prev: Record<string, any>) => ({
