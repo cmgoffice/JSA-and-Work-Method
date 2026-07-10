@@ -106,6 +106,161 @@ table.jsa-print-outer-table > thead > tr > th {
   box-sizing: border-box;
 }
 
+.jsa-header {
+  box-sizing: border-box;
+}
+
+.jsa-header-top-table,
+.jsa-header-meta-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.jsa-header-top-table {
+  margin-bottom: 0.45rem;
+  border-bottom: 1px solid #000;
+}
+
+.jsa-header-top-table td,
+.jsa-header-meta-table td {
+  border: none;
+  vertical-align: middle;
+}
+
+.jsa-header-top-logo {
+  width: 28%;
+  padding: 0 0.75rem 0.45rem 0;
+}
+
+.jsa-header-top-title {
+  padding: 0 0.75rem 0.45rem;
+  text-align: center;
+}
+
+.jsa-header-top-code {
+  width: 18%;
+  padding: 0 0 0.45rem 0.75rem;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.jsa-header-logo {
+  margin-right: auto;
+}
+
+.jsa-header-title {
+  margin: 0;
+  letter-spacing: 0.01em;
+}
+
+.jsa-header-meta-grid {
+  align-items: stretch;
+}
+
+.jsa-header-field {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  min-height: 3.1rem;
+}
+
+.jsa-header-field > span:first-child,
+.jsa-header-field-label {
+  display: block;
+  margin-bottom: 0.1rem;
+  font-weight: 700;
+  line-height: 1.02;
+}
+
+.jsa-header-field-value {
+  display: block;
+  min-height: 1.55rem;
+  padding: 0 0.15rem 0.1rem;
+  border-bottom: 1px solid #000;
+  line-height: 1.08;
+  word-break: break-word;
+}
+
+.jsa-header-field-value--project {
+  color: #1e40af;
+  font-weight: 700;
+}
+
+.jsa-header-field--ghost::after {
+  content: "";
+  display: block;
+  margin-top: auto;
+  border-bottom: 1px solid #000;
+}
+
+.print-preview-sheet .document-export-preview {
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.print-mode-grayscale .document-export-preview,
+html[data-print-color-mode="grayscale"] #printable-wms,
+html[data-print-color-mode="grayscale"] #printable-jsa,
+body[data-print-color-mode="grayscale"] #printable-wms,
+body[data-print-color-mode="grayscale"] #printable-jsa {
+  background: #fff !important;
+  color: #000 !important;
+}
+
+.print-mode-grayscale .document-export-preview *,
+html[data-print-color-mode="grayscale"] #printable-wms *,
+html[data-print-color-mode="grayscale"] #printable-jsa *,
+body[data-print-color-mode="grayscale"] #printable-wms *,
+body[data-print-color-mode="grayscale"] #printable-jsa * {
+  color: #000 !important;
+}
+
+.print-mode-grayscale .document-export-preview img,
+html[data-print-color-mode="grayscale"] #printable-wms img,
+html[data-print-color-mode="grayscale"] #printable-jsa img,
+body[data-print-color-mode="grayscale"] #printable-wms img,
+body[data-print-color-mode="grayscale"] #printable-jsa img {
+  color: initial !important;
+}
+
+.print-mode-grayscale .wms-export-heading,
+.print-mode-grayscale .wms-export-meta-table th,
+.print-mode-grayscale .wms-export-meta-table td,
+.print-mode-grayscale .jsa-header,
+.print-mode-grayscale .jsa-print-grid thead th,
+.print-mode-grayscale .jsa-print-grid tbody,
+.print-mode-grayscale .jsa-print-grid > tbody,
+.print-mode-grayscale .jsa-print-grid .jsa-print-row-group,
+.print-mode-grayscale .jsa-print-grid .jsa-print-row-group td,
+html[data-print-color-mode="grayscale"] .wms-export-heading,
+html[data-print-color-mode="grayscale"] .wms-export-meta-table th,
+html[data-print-color-mode="grayscale"] .wms-export-meta-table td,
+html[data-print-color-mode="grayscale"] #printable-jsa .jsa-header,
+html[data-print-color-mode="grayscale"] #printable-jsa table thead th,
+html[data-print-color-mode="grayscale"] #printable-jsa table tbody,
+html[data-print-color-mode="grayscale"] #printable-jsa .jsa-print-grid > tbody,
+html[data-print-color-mode="grayscale"] #printable-jsa .jsa-print-grid .jsa-print-row-group,
+html[data-print-color-mode="grayscale"] #printable-jsa .jsa-print-grid .jsa-print-row-group td,
+body[data-print-color-mode="grayscale"] .wms-export-heading,
+body[data-print-color-mode="grayscale"] .wms-export-meta-table th,
+body[data-print-color-mode="grayscale"] .wms-export-meta-table td,
+body[data-print-color-mode="grayscale"] #printable-jsa .jsa-header,
+body[data-print-color-mode="grayscale"] #printable-jsa table thead th,
+body[data-print-color-mode="grayscale"] #printable-jsa table tbody,
+body[data-print-color-mode="grayscale"] #printable-jsa .jsa-print-grid > tbody,
+body[data-print-color-mode="grayscale"] #printable-jsa .jsa-print-grid .jsa-print-row-group,
+body[data-print-color-mode="grayscale"] #printable-jsa .jsa-print-grid .jsa-print-row-group td {
+  background: #fff !important;
+  background-color: #fff !important;
+}
+
+.print-mode-grayscale .wms-proj-val,
+html[data-print-color-mode="grayscale"] .wms-proj-val,
+body[data-print-color-mode="grayscale"] .wms-proj-val {
+  color: #000 !important;
+}
+
 @media print {
   /* หน้าจอใช้ h-screen + overflow-hidden — ตอนพิมพ์ต้องปล่อยความสูง/overflow ไม่ให้ตัดเหลือหน้าเดียว */
   html,
@@ -182,6 +337,46 @@ table.jsa-print-outer-table > thead > tr > th {
   }
 
   /* เซลล์เนื้อหาตัวกลาง: ให้แบ่งหน้าได้ */
+  #printable-jsa .jsa-print-grid {
+    border-collapse: separate !important;
+    border-spacing: 0 !important;
+    table-layout: fixed !important;
+  }
+
+  #printable-jsa .jsa-print-grid > thead,
+  #printable-jsa .jsa-print-grid > tbody,
+  #printable-jsa .jsa-print-grid .jsa-print-row-group,
+  #printable-jsa .jsa-print-grid .jsa-print-row-group tr,
+  #printable-jsa .jsa-print-grid .jsa-print-row-group td {
+    break-inside: avoid-page !important;
+    page-break-inside: avoid !important;
+  }
+
+  #printable-jsa .jsa-print-grid th,
+  #printable-jsa .jsa-print-grid td {
+    border-color: #000 !important;
+    vertical-align: top !important;
+  }
+
+  #printable-jsa .jsa-print-grid > tbody,
+  #printable-jsa .jsa-print-grid .jsa-print-row-group {
+    background-color: #e6f2e6 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  #printable-jsa .jsa-print-grid > tbody td,
+  #printable-jsa .jsa-print-grid .jsa-print-row-group td {
+    border-bottom: 1px dotted #000 !important;
+    background-color: #e6f2e6 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  #printable-jsa .jsa-print-grid thead th {
+    border-bottom: 1px solid #000 !important;
+  }
+
   table.wms-print-outer-table > tbody > tr > td,
   table.jsa-print-outer-table > tbody > tr > td {
     height: auto !important;
@@ -209,6 +404,48 @@ table.jsa-print-outer-table > thead > tr > th {
   .jsa-print-document {
     max-width: none !important;
     width: 100% !important;
+  }
+
+  html[data-print-color-mode="grayscale"] .wms-export-heading,
+  html[data-print-color-mode="grayscale"] .wms-export-meta-table th,
+  html[data-print-color-mode="grayscale"] .wms-export-meta-table td,
+  html[data-print-color-mode="grayscale"] #printable-jsa .jsa-header,
+  html[data-print-color-mode="grayscale"] #printable-jsa table thead th,
+  html[data-print-color-mode="grayscale"] #printable-jsa table tbody,
+  html[data-print-color-mode="grayscale"] #printable-jsa .jsa-print-grid > tbody,
+  html[data-print-color-mode="grayscale"] #printable-jsa .jsa-print-grid .jsa-print-row-group,
+  html[data-print-color-mode="grayscale"] #printable-jsa .jsa-print-grid .jsa-print-row-group td,
+  body[data-print-color-mode="grayscale"] .wms-export-heading,
+  body[data-print-color-mode="grayscale"] .wms-export-meta-table th,
+  body[data-print-color-mode="grayscale"] .wms-export-meta-table td,
+  body[data-print-color-mode="grayscale"] #printable-jsa .jsa-header,
+  body[data-print-color-mode="grayscale"] #printable-jsa table thead th,
+  body[data-print-color-mode="grayscale"] #printable-jsa table tbody,
+  body[data-print-color-mode="grayscale"] #printable-jsa .jsa-print-grid > tbody,
+  body[data-print-color-mode="grayscale"] #printable-jsa .jsa-print-grid .jsa-print-row-group,
+  body[data-print-color-mode="grayscale"] #printable-jsa .jsa-print-grid .jsa-print-row-group td {
+    background: #fff !important;
+    background-color: #fff !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  html[data-print-color-mode="grayscale"] #printable-wms,
+  html[data-print-color-mode="grayscale"] #printable-jsa,
+  body[data-print-color-mode="grayscale"] #printable-wms,
+  body[data-print-color-mode="grayscale"] #printable-jsa,
+  html[data-print-color-mode="grayscale"] #printable-wms *,
+  html[data-print-color-mode="grayscale"] #printable-jsa *,
+  body[data-print-color-mode="grayscale"] #printable-wms *,
+  body[data-print-color-mode="grayscale"] #printable-jsa * {
+    color: #000 !important;
+  }
+
+  html[data-print-color-mode="grayscale"] #printable-wms img,
+  html[data-print-color-mode="grayscale"] #printable-jsa img,
+  body[data-print-color-mode="grayscale"] #printable-wms img,
+  body[data-print-color-mode="grayscale"] #printable-jsa img {
+    filter: none !important;
   }
 }
 

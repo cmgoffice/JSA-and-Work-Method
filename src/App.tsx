@@ -75,10 +75,20 @@ const prepareHtmlForWordExport = (fragment: string): string => {
     .replace(/href="\//g, `href="${base}/`);
 };
 
-const buildWordExportStyles = (isLandscape: boolean): string => {
+const buildWordExportStyles = (
+  isLandscape: boolean,
+  colorMode: PrintColorMode = "color"
+): string => {
   const pageRule = isLandscape
     ? `@page { size: A4 landscape; margin: 9mm 11mm; }`
     : `@page { size: A4 portrait; margin: 11mm 13mm; }`;
+  const isGrayscale = colorMode === "grayscale";
+  const jsaHeaderBg = isGrayscale ? "#ffffff" : "#fae6d1";
+  const jsaBodyBg = isGrayscale ? "#ffffff" : "#e6f2e6";
+  const sectionBg = isGrayscale ? "#ffffff" : "#f3f4f6";
+  const subtleText = isGrayscale ? "#000000" : "#374151";
+  const codeText = isGrayscale ? "#000000" : "#4b5563";
+  const projectText = isGrayscale ? "#000000" : "#1e40af";
   return `
         ${pageRule}
         @font-face {
@@ -100,7 +110,16 @@ const buildWordExportStyles = (isLandscape: boolean): string => {
           color: #111827;
           margin: 0;
           padding: 0;
+          background: #fff;
         }
+        .document-export-preview {
+          font-family: 'TH SarabunPSK', 'Sarabun', 'Cordia New', sans-serif;
+          font-size: 18pt;
+          line-height: 1.35;
+          text-align: left;
+          background: #fff;
+        }
+        .document-export-preview table { font-size: inherit; }
         p { margin: 0.15em 0; font-size: 18pt; line-height: 1.35; }
         h1, h2, h3 { font-family: 'TH SarabunPSK', 'Sarabun', 'Cordia New', sans-serif; }
 
@@ -148,13 +167,13 @@ const buildWordExportStyles = (isLandscape: boolean): string => {
         .wms-export-title-table h3 {
           font-size: 18pt;
           font-weight: normal;
-          color: #374151;
+          color: ${subtleText};
           margin: 4pt 0 0 0;
         }
         .wms-export-title-table .wms-fm-code {
           font-size: 17pt;
           font-weight: 600;
-          color: #4b5563;
+          color: ${codeText};
         }
         .wms-export-title-table img { max-width: 200px; height: auto; display: block; }
 
@@ -172,20 +191,20 @@ const buildWordExportStyles = (isLandscape: boolean): string => {
           vertical-align: middle;
         }
         .wms-export-meta-table th {
-          background: #f3f4f6;
+          background: ${sectionBg};
           font-weight: bold;
           text-align: left;
           width: 22%;
         }
         .wms-export-meta-table td { text-align: center; }
         .wms-export-meta-table td.wms-proj-val {
-          color: #1e40af;
+          color: ${projectText};
           font-weight: bold;
         }
 
         .wms-export-heading {
           font-weight: bold;
-          background-color: #f3f4f6;
+          background-color: ${sectionBg};
           padding: 4pt 8pt;
           text-transform: uppercase;
           font-size: 19pt;
@@ -222,22 +241,51 @@ const buildWordExportStyles = (isLandscape: boolean): string => {
 
         /* JSA — Word ไม่เข้าใจ grid ของ Tailwind */
         .jsa-header {
-          background-color: #fae6d1;
+          background-color: ${jsaHeaderBg};
           border: 1pt solid #000;
           padding: 8pt 10pt;
           margin-bottom: 8pt;
         }
-        .jsa-header .grid {
-          display: block !important;
+        .jsa-header-top-table,
+        .jsa-header-meta-table {
+          width: 100%;
+          border-collapse: collapse;
+          table-layout: fixed;
+          margin: 0;
         }
-        .jsa-header .grid > div {
-          display: block !important;
-          width: 100% !important;
-          max-width: 100% !important;
-          margin-bottom: 3pt;
+        .jsa-header-top-table {
+          border-bottom: 1pt solid #000;
+          margin-bottom: 6pt;
         }
-        .jsa-header table { width: 100%; border: none; margin: 0; }
-        .jsa-header td { border: none; font-size: 18pt; padding: 2pt 4pt; vertical-align: top; }
+        .jsa-header-top-table td,
+        .jsa-header-meta-table td {
+          border: none;
+          font-size: 18pt;
+          padding: 0;
+          vertical-align: top;
+        }
+        .jsa-header-top-logo { width: 28%; padding: 0 8pt 6pt 0; }
+        .jsa-header-top-title { padding: 0 8pt 6pt; text-align: center; }
+        .jsa-header-top-code { width: 18%; padding: 0 0 6pt 8pt; text-align: right; white-space: nowrap; }
+        .jsa-header-title { margin: 0; }
+        .jsa-header-meta-grid { margin-top: 2pt; }
+        .jsa-header-field { display: block; min-height: 34pt; }
+        .jsa-header-field > span:first-child,
+        .jsa-header-field-label {
+          display: block;
+          font-weight: 700;
+          line-height: 1.02;
+          margin-bottom: 2pt;
+        }
+        .jsa-header-field-value {
+          display: block;
+          min-height: 18pt;
+          padding: 0 2pt 1pt;
+          border-bottom: 1pt solid #000;
+          line-height: 1.08;
+        }
+        .jsa-header-field-value--project { color: ${projectText}; font-weight: 700; }
+        .jsa-header-field--ghost::after { content: ""; display: block; margin-top: 20pt; border-bottom: 1pt solid #000; }
         .jsa-print-outer-td > table {
           width: 100%;
           border-collapse: collapse;
@@ -250,8 +298,8 @@ const buildWordExportStyles = (isLandscape: boolean): string => {
           font-size: 17pt;
           vertical-align: top;
         }
-        .jsa-print-outer-td > table thead th { background: #fae6d1; text-align: center; }
-        .jsa-print-outer-td > table tbody td { background: #e6f2e6; }
+        .jsa-print-outer-td > table thead th { background: ${jsaHeaderBg}; text-align: center; }
+        .jsa-print-outer-td > table tbody td { background: ${jsaBodyBg}; }
         .dotted-border td { border-bottom: 1pt dotted #000; }
       `;
 };
@@ -303,11 +351,29 @@ const getJSAGroupKey = (doc: any) => {
   return `${project}::${jobTitle}`;
 };
 
+type PrintColorMode = "color" | "grayscale";
+
+type PrintPreviewState = {
+  title: string;
+  elementId: string;
+  filename: string;
+  isLandscape: boolean;
+  previewHtml: string;
+  previewClassName: string;
+  previewMaxWidth?: string;
+};
+
+type PrintPreviewPagination = {
+  pageHeight: number;
+  pageOffsets: number[];
+};
+
 // --- Helper Function: Export to MS Word ---
 const exportToWord = (
   elementId: string,
   filename: string = "Document.doc",
-  isLandscape: boolean = false
+  isLandscape: boolean = false,
+  colorMode: PrintColorMode = "color"
 ) => {
   const preHtml = `
     <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
@@ -318,7 +384,7 @@ const exportToWord = (
         <w:WordDocument><w:View>Print</w:View><w:Zoom>100</w:Zoom></w:WordDocument>
       </xml><![endif]-->
       <style>
-        ${buildWordExportStyles(isLandscape)}
+        ${buildWordExportStyles(isLandscape, colorMode)}
       </style>
     </head>
     <body>
@@ -327,7 +393,13 @@ const exportToWord = (
   const element = document.getElementById(elementId);
   if (!element) return;
 
-  const html = preHtml + prepareHtmlForWordExport(element.innerHTML) + postHtml;
+  const exportedHtml = prepareHtmlForWordExport(element.innerHTML);
+  const wrapperClassName = element.className || "";
+  const wrapperStyle = element.getAttribute("style") || "";
+  const html =
+    preHtml +
+    `<div class="${wrapperClassName}" style="${wrapperStyle}">${exportedHtml}</div>` +
+    postHtml;
   const blob = new Blob(["\ufeff", html], { type: "application/msword" });
   const url =
     "data:application/vnd.ms-word;charset=utf-8," + encodeURIComponent(html);
@@ -492,8 +564,19 @@ const initialWMSFormState = {
   inspectTesting: "",
   jsa: "",
   documentedInfo: "",
-  attachments: [] as { type: "document" | "photo" | "url"; name: string; data: string; url?: string }[],
+  attachments: [] as {
+    type: "document" | "photo" | "url";
+    name: string;
+    data?: string;
+    url?: string;
+    path?: string;
+    uploadedAt?: string;
+    contentType?: string;
+  }[],
 };
+
+const getAttachmentUrl = (attachment: { url?: string; data?: string } | null | undefined): string =>
+  attachment?.url || attachment?.data || "";
 
 const normalizeJSAItems = (items: any[]): any[] => {
   if (!items) return [];
@@ -621,6 +704,14 @@ export default function App() {
   const [wmsFormData, setWmsFormData] = useState<any>(initialWMSFormState);
   const [currentWMSDoc, setCurrentWMSDoc] = useState<any>(null);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+  const [printPreview, setPrintPreview] = useState<PrintPreviewState | null>(null);
+  const [printColorMode, setPrintColorMode] = useState<PrintColorMode>("color");
+  const [isPrinting, setIsPrinting] = useState(false);
+  const [printPreviewPagination, setPrintPreviewPagination] = useState<PrintPreviewPagination>({
+    pageHeight: 0,
+    pageOffsets: [0],
+  });
+  const printPreviewMeasureRef = useRef<HTMLDivElement>(null);
 
   // JSA State
   const [jsaDocuments, setJsaDocuments] = useState<any[]>([]);
@@ -632,6 +723,7 @@ export default function App() {
   const [isSavingProject, setIsSavingProject] = useState(false);
   const [isSavingWMS, setIsSavingWMS] = useState(false);
   const [isSavingJSA, setIsSavingJSA] = useState(false);
+  const [isUploadingWMSFiles, setIsUploadingWMSFiles] = useState(false);
   const [isUploadingJSAFiles, setIsUploadingJSAFiles] = useState(false);
 
   // Modal แก้ไข User
@@ -668,6 +760,130 @@ export default function App() {
       }
     }
   }, [roles, activeTab, accessibleModules]);
+
+  useEffect(() => {
+    const handleAfterPrint = () => {
+      document.body.removeAttribute("data-print-color-mode");
+      document.documentElement.removeAttribute("data-print-color-mode");
+      setIsPrinting(false);
+      setPrintPreview(null);
+      setPrintColorMode("color");
+    };
+
+    window.addEventListener("afterprint", handleAfterPrint);
+    return () => window.removeEventListener("afterprint", handleAfterPrint);
+  }, []);
+
+  useEffect(() => {
+    if (!printPreview) {
+      setPrintPreviewPagination({
+        pageHeight: 0,
+        pageOffsets: [0],
+      });
+      return;
+    }
+
+    let frameId = 0;
+    let resizeObserver: ResizeObserver | null = null;
+
+    const updatePagination = () => {
+      const measureElement = printPreviewMeasureRef.current;
+      if (!measureElement) return;
+
+      const contentWidth = Math.ceil(measureElement.getBoundingClientRect().width);
+      const contentHeight = Math.ceil(
+        Math.max(measureElement.scrollHeight, measureElement.getBoundingClientRect().height)
+      );
+
+      if (!contentWidth || !contentHeight) return;
+
+      const pageRatio = printPreview.isLandscape ? 210 / 297 : 297 / 210;
+      const pageHeight = Math.max(1, Math.round(contentWidth * pageRatio));
+      const pageCount = Math.max(1, Math.ceil(contentHeight / pageHeight));
+      const pageOffsets = Array.from({ length: pageCount }, (_, index) => index * pageHeight);
+
+      setPrintPreviewPagination((current) => {
+        const sameHeight = current.pageHeight === pageHeight;
+        const sameOffsets =
+          current.pageOffsets.length === pageOffsets.length &&
+          current.pageOffsets.every((offset, index) => offset === pageOffsets[index]);
+
+        if (sameHeight && sameOffsets) return current;
+
+        return {
+          pageHeight,
+          pageOffsets,
+        };
+      });
+    };
+
+    const queuePagination = () => {
+      cancelAnimationFrame(frameId);
+      frameId = window.requestAnimationFrame(updatePagination);
+    };
+
+    queuePagination();
+    window.addEventListener("resize", queuePagination);
+
+    if (typeof ResizeObserver !== "undefined" && printPreviewMeasureRef.current) {
+      resizeObserver = new ResizeObserver(queuePagination);
+      resizeObserver.observe(printPreviewMeasureRef.current);
+    }
+
+    return () => {
+      cancelAnimationFrame(frameId);
+      window.removeEventListener("resize", queuePagination);
+      resizeObserver?.disconnect();
+    };
+  }, [printPreview]);
+
+  const openPrintPreview = (config: {
+    title: string;
+    elementId: string;
+    filename: string;
+    isLandscape: boolean;
+  }) => {
+    const element = document.getElementById(config.elementId);
+    if (!element) return;
+
+    setPrintColorMode("color");
+    setPrintPreview({
+      ...config,
+      previewHtml: element.innerHTML,
+      previewClassName: element.className,
+      previewMaxWidth: element.style.maxWidth || undefined,
+    });
+  };
+
+  const closePrintPreview = () => {
+    if (isPrinting) return;
+    document.body.removeAttribute("data-print-color-mode");
+    document.documentElement.removeAttribute("data-print-color-mode");
+    setPrintPreview(null);
+    setPrintColorMode("color");
+  };
+
+  const applyPrintColorMode = (mode: PrintColorMode) => {
+    document.body.setAttribute("data-print-color-mode", mode);
+    document.documentElement.setAttribute("data-print-color-mode", mode);
+  };
+
+  const handlePrintFromPreview = () => {
+    if (!printPreview || isPrinting) return;
+    applyPrintColorMode(printColorMode);
+    setIsPrinting(true);
+    window.print();
+  };
+
+  const handleExportWordFromPreview = () => {
+    if (!printPreview) return;
+    exportToWord(
+      printPreview.elementId,
+      printPreview.filename,
+      printPreview.isLandscape,
+      printColorMode
+    );
+  };
 
   useEffect(() => {
     if (activeTab !== "users") setUserMgmtSubTab("list");
@@ -869,6 +1085,65 @@ export default function App() {
     e.target.value = "";
   };
 
+  const handleWMSStorageUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: "document" | "photo") => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    if (!user) {
+      alert("รอการยืนยันตัวตนสักครู่...");
+      e.target.value = "";
+      return;
+    }
+
+    const ensuredDocId = wmsFormData.id || Date.now().toString();
+    if (!wmsFormData.id) {
+      setWmsFormData((prev: Record<string, any>) => ({ ...prev, id: ensuredDocId }));
+    }
+
+    setIsUploadingWMSFiles(true);
+    try {
+      const uploaded = await Promise.all(
+        Array.from(files).map(async (file) => {
+          const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+          const path = `wms_attachments/${ensuredDocId}/${Date.now()}_${safeName}`;
+          const fileRef = storageRef(storage, path);
+          await uploadBytes(fileRef, file);
+          const url = await getDownloadURL(fileRef);
+          return {
+            type,
+            name: file.name,
+            url,
+            path,
+            uploadedAt: new Date().toISOString(),
+            contentType: file.type || undefined,
+          };
+        })
+      );
+
+      setWmsFormData((prev: Record<string, any>) => ({
+        ...prev,
+        attachments: [...(prev.attachments || []), ...uploaded],
+      }));
+    } catch (err: any) {
+      console.error("Error uploading WMS files:", err);
+
+      let errorMessage = "อัปโหลดไฟล์ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง";
+      if (err?.code === "storage/unauthorized") {
+        errorMessage = "ไม่มีสิทธิ์อัปโหลดไฟล์ กรุณาตรวจสอบการตั้งค่า Storage Rules";
+      } else if (err?.code === "storage/canceled") {
+        errorMessage = "การอัปโหลดถูกยกเลิก";
+      } else if (err?.code === "storage/unknown") {
+        errorMessage = "เกิดข้อผิดพลาดที่ไม่ทราบสาเหตุ กรุณาตรวจสอบการเชื่อมต่ออินเทอร์เน็ต";
+      } else if (err?.message) {
+        errorMessage = err.message;
+      }
+
+      alert(errorMessage);
+    } finally {
+      setIsUploadingWMSFiles(false);
+      e.target.value = "";
+    }
+  };
+
   const [wmsUrlInput, setWmsUrlInput] = useState("");
   const [wmsUrlNameInput, setWmsUrlNameInput] = useState("");
 
@@ -896,7 +1171,7 @@ export default function App() {
 
   const handleWMSSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isSavingWMS) return;
+    if (isSavingWMS || isUploadingWMSFiles) return;
     if (!user) return alert("รอการยืนยันตัวตนสักครู่...");
     const isNew = !wmsFormData.id;
     const docId = isNew ? Date.now().toString() : wmsFormData.id;
@@ -1835,7 +2110,7 @@ export default function App() {
           {/* Upload Buttons Row */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
             {/* Document Upload */}
-            <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 flex flex-col items-center gap-2 bg-gray-50 hover:border-blue-400 transition-colors cursor-pointer" onClick={() => document.getElementById('wms-doc-upload')?.click()}>
+            <div className={`border-2 border-dashed rounded-lg p-4 flex flex-col items-center gap-2 bg-gray-50 transition-colors ${isUploadingWMSFiles ? "border-gray-200 opacity-60 cursor-not-allowed" : "border-gray-300 hover:border-blue-400 cursor-pointer"}`} onClick={() => !isUploadingWMSFiles && document.getElementById('wms-doc-upload')?.click()}>
               <Paperclip size={24} className="text-blue-500" />
               <span className="text-sm font-medium text-gray-700">อัปโหลดเอกสาร</span>
               <span className="text-xs text-gray-400">PDF, DOC, XLSX, ฯลฯ</span>
@@ -1845,12 +2120,12 @@ export default function App() {
                 multiple
                 accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt"
                 className="hidden"
-                onChange={(e) => handleWMSFileUpload(e, "document")}
+                onChange={(e) => handleWMSStorageUpload(e, "document")}
               />
             </div>
 
             {/* Photo Upload */}
-            <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 flex flex-col items-center gap-2 bg-gray-50 hover:border-green-400 transition-colors cursor-pointer" onClick={() => document.getElementById('wms-photo-upload')?.click()}>
+            <div className={`border-2 border-dashed rounded-lg p-4 flex flex-col items-center gap-2 bg-gray-50 transition-colors ${isUploadingWMSFiles ? "border-gray-200 opacity-60 cursor-not-allowed" : "border-gray-300 hover:border-green-400 cursor-pointer"}`} onClick={() => !isUploadingWMSFiles && document.getElementById('wms-photo-upload')?.click()}>
               <ImagePlus size={24} className="text-green-500" />
               <span className="text-sm font-medium text-gray-700">อัปโหลดรูปภาพ</span>
               <span className="text-xs text-gray-400">JPG, PNG, GIF, WebP</span>
@@ -1860,7 +2135,7 @@ export default function App() {
                 multiple
                 accept="image/*"
                 className="hidden"
-                onChange={(e) => handleWMSFileUpload(e, "photo")}
+                onChange={(e) => handleWMSStorageUpload(e, "photo")}
               />
             </div>
 
@@ -1901,7 +2176,7 @@ export default function App() {
               {(wmsFormData.attachments as any[]).map((att: any, idx: number) => (
                 <div key={idx} className="flex items-center gap-3 p-3 bg-white border rounded-lg shadow-sm">
                   {att.type === "photo" ? (
-                    <img src={att.data} alt={att.name} className="w-12 h-12 object-cover rounded border flex-shrink-0" />
+                    <img src={getAttachmentUrl(att)} alt={att.name} className="w-12 h-12 object-cover rounded border flex-shrink-0" />
                   ) : att.type === "url" ? (
                     <div className="w-12 h-12 flex items-center justify-center bg-purple-100 rounded border flex-shrink-0">
                       <LinkIcon size={20} className="text-purple-600" />
@@ -1929,7 +2204,7 @@ export default function App() {
                   )}
                   {att.type === "photo" && (
                     <a
-                      href={att.data}
+                      href={getAttachmentUrl(att)}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="p-1.5 text-green-600 hover:bg-green-50 rounded transition-colors"
@@ -1964,10 +2239,10 @@ export default function App() {
           </button>
           <button
             type="submit"
-            disabled={isSavingWMS}
+            disabled={isSavingWMS || isUploadingWMSFiles}
             className="px-6 py-2 bg-blue-600 rounded-lg text-white flex items-center disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            {isSavingWMS ? <Loader2 className="w-5 h-5 mr-2 animate-spin" /> : <Save className="w-5 h-5 mr-2" />}
+            {isSavingWMS || isUploadingWMSFiles ? <Loader2 className="w-5 h-5 mr-2 animate-spin" /> : <Save className="w-5 h-5 mr-2" />}
             {isSavingWMS ? "กำลังบันทึก..." : "บันทึกเอกสารลง Cloud"}
           </button>
         </div>
@@ -1987,10 +2262,17 @@ export default function App() {
         </button>
         <div className="flex space-x-3">
           <button
-            onClick={() => window.print()}
+            onClick={() =>
+              openPrintPreview({
+                title: currentWMSDoc?.documentTitle || "WMS Document",
+                elementId: "printable-wms",
+                filename: `${currentWMSDoc?.documentTitle || "WMS_Doc"}.doc`,
+                isLandscape: false,
+              })
+            }
             className="flex items-center px-4 py-2 bg-gray-800 text-white rounded-lg"
           >
-            <Printer className="w-4 h-4 mr-2" /> Print PDF
+            <Printer className="w-4 h-4 mr-2" /> Print Preview
           </button>
           <button
             onClick={() =>
@@ -2037,7 +2319,7 @@ export default function App() {
                       {(currentWMSDoc?.attachments as any[] || []).filter((a: any) => a.type === "document").map((att: any, idx: number) => (
                         <a
                           key={idx}
-                          href={att.data}
+                          href={getAttachmentUrl(att)}
                           download={att.name}
                           className="flex items-center gap-2 p-2 rounded-lg hover:bg-blue-50 transition-colors group cursor-pointer"
                         >
@@ -2063,11 +2345,11 @@ export default function App() {
                         <button
                           key={idx}
                           type="button"
-                          onClick={() => setLightboxSrc(att.data)}
+                          onClick={() => setLightboxSrc(getAttachmentUrl(att))}
                           className="relative group aspect-square overflow-hidden rounded border border-gray-200 hover:border-green-400 transition-colors"
                           title={att.name}
                         >
-                          <img src={att.data} alt={att.name} className="w-full h-full object-cover" />
+                          <img src={getAttachmentUrl(att)} alt={att.name} className="w-full h-full object-cover" />
                           <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                             <Eye size={14} className="text-white" />
                           </div>
@@ -2745,10 +3027,17 @@ export default function App() {
         </button>
         <div className="flex space-x-3">
           <button
-            onClick={() => window.print()}
+            onClick={() =>
+              openPrintPreview({
+                title: currentJSADoc?.jobTitle || "JSA Document",
+                elementId: "printable-jsa",
+                filename: `JSA_${currentJSADoc?.jobTitle || "Document"}.doc`,
+                isLandscape: true,
+              })
+            }
             className="flex items-center px-4 py-2 bg-gray-800 text-white rounded-lg"
           >
-            <Printer className="w-4 h-4 mr-2" /> พิมพ์ (Landscape)
+            <Printer className="w-4 h-4 mr-2" /> Print Preview
           </button>
           <button
             onClick={() =>
@@ -2830,78 +3119,82 @@ export default function App() {
               <th scope="colgroup" className="jsa-print-outer-th p-0 align-top text-left font-normal border-0">
         {/* JSA Header Section */}
         <div className="jsa-header bg-[#fae6d1] border border-black mb-0 p-2 rounded-sm leading-snug print:rounded-none">
-          <div className="flex justify-between items-center mb-2 border-b border-black pb-1.5">
-            <div className="w-1/4">
-              <CMGLogo />
-            </div>
-            <div className="w-2/4 text-center">
-              <h1 className="text-[1.22em] font-bold leading-tight">
+          <table className="jsa-header-top-table">
+            <tbody>
+              <tr>
+                <td className="jsa-header-top-logo">
+                  <CMGLogo className="jsa-header-logo" />
+                </td>
+                <td className="jsa-header-top-title">
+                  <h1 className="jsa-header-title text-[1.22em] font-bold leading-tight">
                 JOB SAFETY ANALYSIS / การวิเคราะห์งานเพื่อความปลอดภัย
-              </h1>
-            </div>
-            <div className="w-1/4 text-right text-[0.92em] font-semibold">
-              FM-SHE-005/00
-            </div>
-          </div>
+                  </h1>
+                </td>
+                <td className="jsa-header-top-code text-right text-[0.92em] font-semibold">
+                  FM-SHE-005/00
+                </td>
+              </tr>
+            </tbody>
+          </table>
 
-          <div className="grid grid-cols-12 gap-x-3 gap-y-1">
-            <div className="col-span-5 flex">
-              <span className="w-40 font-semibold">
+          <div className="jsa-header-meta-grid grid grid-cols-12 gap-x-3 gap-y-2">
+            <div className="jsa-header-field jsa-header-field--wide col-span-5">
+              <span className="jsa-header-field-label">
                 Client/เจ้าของโครงการ :
               </span>
-              <span className="border-b border-black flex-1 ml-2">
+              <span className="jsa-header-field-value">
                 {currentJSADoc?.client}
               </span>
             </div>
-            <div className="col-span-4 flex">
+            <div className="jsa-header-field jsa-header-field--mid col-span-4">
               <span className="w-24 font-semibold">ผู้จัดทำ :</span>
-              <span className="border-b border-black flex-1 ml-2">
+              <span className="jsa-header-field-value">
                 {currentJSADoc?.preparedBy}
               </span>
             </div>
-            <div className="col-span-3 flex">
+            <div className="jsa-header-field jsa-header-field--narrow col-span-3">
               <span className="w-28 font-semibold">Date./วันที่ :</span>
-              <span className="border-b border-black flex-1 ml-2">
+              <span className="jsa-header-field-value">
                 {currentJSADoc?.date}
               </span>
             </div>
 
-            <div className="col-span-5 flex">
+            <div className="jsa-header-field jsa-header-field--wide col-span-5">
               <span className="w-40 font-semibold">Project/โครงการ :</span>
-              <span className="border-b border-black flex-1 ml-2 text-blue-800 font-semibold">
+              <span className="jsa-header-field-value jsa-header-field-value--project">
                 {currentJSADoc?.project}
               </span>
             </div>
-            <div className="col-span-4 flex">
+            <div className="jsa-header-field jsa-header-field--mid col-span-4">
               <span className="w-24 font-semibold">ผู้ตรวจสอบ :</span>
-              <span className="border-b border-black flex-1 ml-2">
+              <span className="jsa-header-field-value">
                 {currentJSADoc?.reviewedBy}
               </span>
             </div>
-            <div className="col-span-3 flex">
+            <div className="jsa-header-field jsa-header-field--narrow col-span-3">
               <span className="w-28 font-semibold">
                 Rev./ปรับปรุงครั้งที่ :
               </span>
-              <span className="border-b border-black flex-1 ml-2">
+              <span className="jsa-header-field-value">
                 {currentJSADoc?.rev}
               </span>
             </div>
 
-            <div className="col-span-5 flex">
+            <div className="jsa-header-field jsa-header-field--wide col-span-5">
               <span className="w-40 font-semibold">
                 Job Title/งานที่วิเคราะห์ :
               </span>
-              <span className="border-b border-black flex-1 ml-2">
+              <span className="jsa-header-field-value">
                 {currentJSADoc?.jobTitle}
               </span>
             </div>
-            <div className="col-span-4 flex">
+            <div className="jsa-header-field jsa-header-field--mid col-span-4">
               <span className="w-24 font-semibold">ผู้อนุมัติ :</span>
-              <span className="border-b border-black flex-1 ml-2">
+              <span className="jsa-header-field-value">
                 {currentJSADoc?.approvedBy}
               </span>
             </div>
-            <div className="col-span-3"></div>
+            <div className="jsa-header-field jsa-header-field--ghost col-span-3" aria-hidden="true"></div>
           </div>
         </div>
               </th>
@@ -2911,7 +3204,7 @@ export default function App() {
             <tr>
               <td className="jsa-print-outer-td p-0 align-top border-0 pt-2 print:pt-1">
         {/* JSA Table Section */}
-        <table className="w-full border-collapse border border-black leading-snug">
+        <table className="jsa-print-grid w-full border-collapse border border-black leading-snug">
           <thead>
             <tr className="bg-[#fae6d1]">
               <th className="border border-black py-1 px-1.5 w-12 text-center">
@@ -2945,41 +3238,40 @@ export default function App() {
               </th>
             </tr>
           </thead>
-          <tbody className="bg-[#e6f2e6]">
-            {normalizeJSAItems(currentJSADoc?.items).map((step: any, sIdx: number) => {
-              const stepRowsCount = step.hazards.reduce((acc: number, h: any) => acc + Math.max(1, h.controls.length), 0) || 1;
-
+          {normalizeJSAItems(currentJSADoc?.items).flatMap((step: any, sIdx: number) => {
               return step.hazards.flatMap((hazard: any, hIdx: number) => {
-                const hazardRowsCount = Math.max(1, hazard.controls.length);
+                const controls =
+                  hazard.controls && hazard.controls.length
+                    ? hazard.controls
+                    : [{ id: `empty-control-${hazard.id}`, control: "", responder: "" }];
 
-                return hazard.controls.map((control: any, cIdx: number) => {
+                return controls.map((control: any, cIdx: number) => {
                   const isFirstStepRow = hIdx === 0 && cIdx === 0;
                   const isFirstHazardRow = cIdx === 0;
 
                   return (
-                    <tr key={`${step.id}-${hazard.id}-${control.id}`} className="border border-black dotted-border">
-                      {isFirstStepRow && (
-                        <>
-                          <td rowSpan={stepRowsCount} className="border-r border-l border-black py-1 px-1.5 text-center align-top border-b border-dotted">
-                            {sIdx + 1}
-                          </td>
-                          <td rowSpan={stepRowsCount} className="border-r border-black py-1 px-1.5 align-top whitespace-pre-wrap border-b border-dotted">
-                            {step.step}
-                          </td>
-                        </>
-                      )}
-                      {isFirstHazardRow && (
-                        <td rowSpan={hazardRowsCount} className="border-r border-black py-1 px-1.5 align-top whitespace-pre-wrap border-b border-dotted">
-                          {`${sIdx + 1}.${hIdx + 1} ${hazard.hazard}`}
+                    <tbody
+                      key={`${step.id}-${hazard.id}-${control.id}`}
+                      className="jsa-print-row-group bg-[#e6f2e6]"
+                    >
+                      <tr className="border border-black dotted-border">
+                        <td className="border-r border-l border-black py-1 px-1.5 text-center align-top border-b border-dotted">
+                          {isFirstStepRow ? sIdx + 1 : ""}
                         </td>
-                      )}
-                      <td className="border-r border-black py-1 px-1.5 align-top whitespace-pre-wrap border-b border-dotted">
-                        {`${sIdx + 1}.${hIdx + 1}.${cIdx + 1} ${control.control}`}
-                      </td>
-                      <td className="border-r border-black py-1 px-1.5 align-top text-center border-b border-dotted whitespace-pre-wrap">
-                        {control.responder}
-                      </td>
-                    </tr>
+                        <td className="border-r border-black py-1 px-1.5 align-top whitespace-pre-wrap border-b border-dotted">
+                          {isFirstStepRow ? step.step : ""}
+                        </td>
+                        <td className="border-r border-black py-1 px-1.5 align-top whitespace-pre-wrap border-b border-dotted">
+                          {isFirstHazardRow ? `${sIdx + 1}.${hIdx + 1} ${hazard.hazard}` : ""}
+                        </td>
+                        <td className="border-r border-black py-1 px-1.5 align-top whitespace-pre-wrap border-b border-dotted">
+                          {`${sIdx + 1}.${hIdx + 1}.${cIdx + 1} ${control.control}`}
+                        </td>
+                        <td className="border-r border-black py-1 px-1.5 align-top text-center border-b border-dotted whitespace-pre-wrap">
+                          {control.responder}
+                        </td>
+                      </tr>
+                    </tbody>
                   );
                 });
               });
@@ -2998,19 +3290,20 @@ export default function App() {
               return Array.from({
                 length: Math.max(0, 5 - totalRows),
               }).map((_, i) => (
-                <tr
-                  key={`empty-${i}`}
-                  className="border border-black dotted-border h-7"
-                >
-                  <td className="border-r border-l border-black border-b border-dotted"></td>
-                  <td className="border-r border-black border-b border-dotted"></td>
-                  <td className="border-r border-black border-b border-dotted"></td>
-                  <td className="border-r border-black border-b border-dotted"></td>
-                  <td className="border-r border-black border-b border-dotted"></td>
-                </tr>
+                <tbody key={`empty-group-${i}`} className="bg-[#e6f2e6]">
+                  <tr
+                    key={`empty-${i}`}
+                    className="border border-black dotted-border h-7"
+                  >
+                    <td className="border-r border-l border-black border-b border-dotted"></td>
+                    <td className="border-r border-black border-b border-dotted"></td>
+                    <td className="border-r border-black border-b border-dotted"></td>
+                    <td className="border-r border-black border-b border-dotted"></td>
+                    <td className="border-r border-black border-b border-dotted"></td>
+                  </tr>
+                </tbody>
               ));
             })()}
-          </tbody>
         </table>
               </td>
             </tr>
@@ -3820,6 +4113,155 @@ export default function App() {
       />
 
       {/* ===== Modal แก้ไขสิทธิ์ผู้ใช้งาน ===== */}
+      {printPreview && (
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm print:hidden">
+          <div className="flex h-full flex-col px-4 py-4 md:px-6 md:py-5">
+            <div className="mx-auto flex w-full max-w-7xl flex-1 flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
+              <div className="flex flex-col gap-4 border-b border-slate-200 px-5 py-4 md:flex-row md:items-center md:justify-between md:px-6">
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                    Print Preview
+                  </p>
+                  <h2 className="truncate text-lg font-semibold text-slate-900 md:text-xl">
+                    {printPreview.title}
+                  </h2>
+                  <p className="text-sm text-slate-500">
+                    ตรวจสอบรูปแบบก่อนพิมพ์ และเลือกได้ว่าจะพิมพ์แบบสีหรือขาวดำ
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="inline-flex rounded-xl border border-slate-200 bg-slate-50 p-1">
+                    <button
+                      type="button"
+                      onClick={() => setPrintColorMode("color")}
+                      className={`rounded-lg px-3 py-2 text-sm font-medium transition ${
+                        printColorMode === "color"
+                          ? "bg-white text-slate-900 shadow-sm"
+                          : "text-slate-500 hover:text-slate-700"
+                      }`}
+                    >
+                      พิมพ์สี
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPrintColorMode("grayscale")}
+                      className={`rounded-lg px-3 py-2 text-sm font-medium transition ${
+                        printColorMode === "grayscale"
+                          ? "bg-white text-slate-900 shadow-sm"
+                          : "text-slate-500 hover:text-slate-700"
+                      }`}
+                    >
+                      ขาวดำ
+                    </button>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={closePrintPreview}
+                    disabled={isPrinting}
+                    className="inline-flex items-center rounded-xl border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <X className="mr-2 h-4 w-4" /> ปิด
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-auto bg-slate-200/70 p-4 md:p-6">
+                <div className="mx-auto flex min-h-full w-full items-start justify-center">
+                  <div className="w-full">
+                    <div
+                      className="mx-auto h-0 overflow-hidden opacity-0 pointer-events-none"
+                      style={{ maxWidth: printPreview.previewMaxWidth || "297mm" }}
+                      aria-hidden="true"
+                    >
+                      <div
+                        ref={printPreviewMeasureRef}
+                        className={printPreview.previewClassName}
+                        style={{
+                          width: "100%",
+                          maxWidth: printPreview.previewMaxWidth || "297mm",
+                        }}
+                        dangerouslySetInnerHTML={{ __html: printPreview.previewHtml }}
+                      />
+                    </div>
+
+                    <div className="mx-auto flex w-full flex-col items-center gap-6">
+                      {printPreviewPagination.pageOffsets.map((pageOffset, index) => (
+                        <div
+                          key={`${printPreview.elementId}-page-${index + 1}`}
+                          className={`print-preview-sheet relative w-full overflow-hidden rounded-2xl border border-slate-300 bg-white shadow-xl ${
+                            printColorMode === "grayscale" ? "print-mode-grayscale" : ""
+                          }`}
+                          style={{
+                            maxWidth: printPreview.previewMaxWidth || "297mm",
+                            height: printPreviewPagination.pageHeight
+                              ? `${printPreviewPagination.pageHeight}px`
+                              : "auto",
+                            minHeight: printPreviewPagination.pageHeight
+                              ? `${printPreviewPagination.pageHeight}px`
+                              : undefined,
+                          }}
+                        >
+                          <div
+                            className="absolute inset-x-0 top-0"
+                            style={{ transform: `translateY(-${pageOffset}px)` }}
+                          >
+                            <div
+                              className={printPreview.previewClassName}
+                              style={{
+                                width: "100%",
+                                maxWidth: printPreview.previewMaxWidth || "297mm",
+                              }}
+                              dangerouslySetInnerHTML={{ __html: printPreview.previewHtml }}
+                            />
+                          </div>
+
+                          {printPreviewPagination.pageOffsets.length > 1 && (
+                            <div className="pointer-events-none absolute bottom-3 right-4 rounded-full bg-slate-900/75 px-2.5 py-1 text-xs font-medium text-white">
+                              {index + 1} / {printPreviewPagination.pageOffsets.length}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-3 border-t border-slate-200 px-5 py-4 md:flex-row md:items-center md:justify-between md:px-6">
+                <p className="text-sm text-slate-500">
+                  โหมดขาวดำจะพรีวิวด้วย grayscale เพื่อให้ใกล้เคียงผลพิมพ์จริงมากขึ้น
+                </p>
+
+                <div className="flex flex-wrap items-center justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={handleExportWordFromPreview}
+                    className="inline-flex items-center rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-blue-700"
+                  >
+                    <Download className="mr-2 h-4 w-4" /> Export Word
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handlePrintFromPreview}
+                    disabled={isPrinting}
+                    className="inline-flex items-center rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {isPrinting ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Printer className="mr-2 h-4 w-4" />
+                    )}
+                    {isPrinting ? "กำลังเปิดหน้าต่างพิมพ์..." : "พิมพ์เอกสาร"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {editUserModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 print:hidden">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
